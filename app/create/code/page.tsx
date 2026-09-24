@@ -1,0 +1,176 @@
+'use client';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+
+import { createCodeShare, type ShareResult } from '@/app/actions/share';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { normalizeRoute } from '@/lib/route';
+import { type CodeShareInput, codeShareSchema } from '@/lib/schemas';
+
+const CodeEditor = dynamic(
+  () => import('@/components/editor/CodeEditor').then((mod) => mod.CodeEditor),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[420px] items-center justify-center rounded-lg border border-line bg-bg font-mono text-sm text-sub">
+        Loading editor…
+      </div>
+    ),
+  },
+);
+
+/**
+ * /create/code — Client Component: interactive Monaco editor, React Hook Form
+ * state, Zod validation (client pass), then the `createCodeShare` server
+ * action (which re-validates everything server-side).
+ */
+export default function CreateCodePage() {
+  const router = useRouter();
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    formState: { errors },
+  } = useForm<CodeShareInput>({
+    resolver: zodResolver(codeShareSchema),
+    defaultValues: { code: '', route: '', pin: '' },
+  });
+
+  const code = watch('code');
+  const route = watch('route');
+
+  const onSubmit = handleSubmit(async (values) => {
+    setPending(true);
+    setSubmitError(null);
+    const result = (await createCodeShare({
+      ...values,
+      route: normalizeRoute(values.route),
+    })) as ShareResult;
+    setPending(false);
+
+    if (result.ok && result.route) {
+      router.push(`/${result.route}`);
+      router.refresh();
+      return;
+    }
+    setSubmitError(result.error ?? 'Something went wrong.');
+  });
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Share code</h1>
+        <p className="mt-1 text-sm text-sub">
+          Paste code or text, pick a route, get a link that dies in 24 hours.
+        </p>
+      </div>
+
+      <form onSubmit={onSubmit} className="space-y-5">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Code</CardTitle>
+            <CardDescription>
+              Plain text in V1 — no language detection yet.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CodeEditor
+              value={code}
+              onChange={(next) =>
+                setValue('code', next, { shouldValidate: true })
+              }
+              ariaLabel="Code to share"
+            />
+            {errors.code && (
+              <p role="alert" className="mt-2 text-sm text-danger">
+                {errors.code.message}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="route">Route</Label>
+              <Input
+                id="route"
+                placeholder="my-snippet"
+                {...register('route')}
+              />
+              {errors.route ? (
+                <p role="alert" className="text-xs text-danger">
+                  {errors.route.message}
+                </p>
+              ) : route ? (
+                <p className="text-xs text-sub">
+                  Your link:{' '}
+                  <span className="font-mono text-accent">
+                    /{normalizeRoute(route)}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-xs text-sub/70">
+                  3–50 chars · a–z, 0–9, - and _ only
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pin">
+                PIN <span className="font-normal text-sub/60">(optional)</span>
+              </Label>
+              <Input
+                id="pin"
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="4 digits"
+                {...register('pin')}
+              />
+              {errors.pin ? (
+                <p role="alert" className="text-xs text-danger">
+                  {errors.pin.message}
+                </p>
+              ) : (
+                <p className="text-xs text-sub/70">
+                  Viewers must enter this PIN to open the share.
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {submitError && (
+          <p role="alert" className="text-sm text-danger">
+            {submitError}
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-sub">
+            Self-destructs 24 hours after creation.
+          </p>
+          <Button type="submit" size="lg" disabled={pending}>
+            {pending ? 'Creating…' : 'Create share'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}

@@ -1,0 +1,257 @@
+'use server';
+
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
+import { cookies } from 'next/headers';
+
+import { getSession } from '@/lib/auth';
+import { expiryFrom, isShareExpired } from '@/lib/expire';
+import { extensionOf, fileProblem, mimeTypeFor } from '@/lib/file';
+import {
+  verifyPin as comparePinWithHash,
+  createUnlockToken,
+  hashPin,
+  UNLOCK_TTL_MS,
+  unlockCookieName,
+} from '@/lib/pin';
+import { prisma } from '@/lib/prisma';
+import { normalizeRoute, routeProblem } from '@/lib/route';
+import { codeShareSchema } from '@/lib/schemas';
+import { ensureUploadsRoot, UPLOADS_ROOT } from '@/lib/storage';
+
+export interface ShareResult {
+  ok: boolean;
+  error?: string;
+  route?: string;
+}
+
+export interface PinFormState {
+  ok: boolean;
+  error?: string;
+  expired?: boolean;
+}
+
+const ROUTE_TAKEN_ERROR =
+  'That route is already in use by an active share. Pick another one, or wait for the current share to expire (24h max).';
+
+/** The share author's user id (null when anonymous). */
+async function currentUserId(): Promise<string | null> {
+  const session = await getSession();
+  return session?.user?.id ?? null;
+}
+
+/**
+ * After creating (or unlocking) a PIN-protected share, the browser that just
+ * proved it knows the PIN gets a short-lived unlock cookie for that route.
+ */
+async function setUnlockCookieForRoute(route: string, expiresAt: Date) {
+  const validUntil = Math.min(expiresAt.getTime(), Date.now() + UNLOCK_TTL_MS);
+  const token = createUnlockToken(route, validUntil);
+  const store = await cookies();
+  store.set(unlockCookieName(route), token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    expires: new Date(validUntil),
+  });
+}
+
+/**
+ * Create a code/text share.
+ *
+ * Server-side validation is mandatory — the client-side Zod pass can be
+ * bypassed, so everything is re-checked here: schema, route rules and
+ * availability.
+ */
+export async function createCodeShare(input: unknown): Promise<ShareResult> {
+  const parsed = codeShareSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Invalid input.',
+    };
+  }
+
+  const { code, pin } = parsed.data;
+  const route = normalizeRoute(parsed.data.route);
+  const problem = routeProblem(route);
+  if (problem) {
+    return { ok: false, error: problem };
+  }
+
+  const now = new Date();
+  const expiresAt = expiryFrom(now);
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    // Availability = no *active* share owns this route right now. Expired
+    // shares release their routes automatically.
+    const taken = await tx.share.findFirst({
+      where: { route, isExpired: false, expiresAt: { gt: now } },
+      select: { id: true },
+    });
+    if (taken) return 'taken' as const;
+
+    await tx.share.create({
+      data: {
+        type: 'code',
+        route,
+        content: code,
+        pinHash: pin ? await hashPin(pin) : null,
+        expiresAt,
+        userId: await currentUserId(),
+      },
+    });
+    return 'created' as const;
+  });
+
+  if (outcome === 'taken') {
+    return { ok: false, error: ROUTE_TAKEN_ERROR };
+  }
+
+  if (pin) {
+    await setUnlockCookieForRoute(route, expiresAt);
+  }
+
+  return { ok: true, route };
+}
+
+/**
+ * Create a file share.
+ *
+ * Order matters: validate → write the file to the local uploads area →
+ * (transaction) check route availability + create share & file rows. If the
+ * database step fails, the just-written file is removed again.
+ */
+export async function createFileShare(
+  formData: FormData,
+): Promise<ShareResult> {
+  const route = normalizeRoute(String(formData.get('route') ?? ''));
+  const pin = String(formData.get('pin') ?? '');
+
+  const problem = routeProblem(route);
+  if (problem) return { ok: false, error: problem };
+  if (pin && !/^\d{4}$/.test(pin)) {
+    return { ok: false, error: 'PIN must be exactly 4 digits.' };
+  }
+
+  const file = formData.get('file');
+  if (!(file instanceof File)) {
+    return { ok: false, error: 'Choose a file to share.' };
+  }
+  const fileIssue = fileProblem(file);
+  if (fileIssue) return { ok: false, error: fileIssue };
+
+  const now = new Date();
+  const expiresAt = expiryFrom(now);
+
+  // Deterministic, traversal-safe storage layout: <root>/<shareId>/<shareId><ext>
+  const shareId = crypto.randomUUID();
+  const ext = extensionOf(file.name);
+  const storedName = `${shareId}${ext ? `.${ext}` : ''}`;
+  const relativePath = `${shareId}/${storedName}`;
+  const directory = path.join(UPLOADS_ROOT, shareId);
+
+  await ensureUploadsRoot();
+  await mkdir(directory, { recursive: true });
+  await writeFile(
+    path.join(directory, storedName),
+    Buffer.from(await file.arrayBuffer()),
+  );
+
+  let outcome: 'taken' | 'created';
+  try {
+    outcome = await prisma.$transaction(async (tx) => {
+      const taken = await tx.share.findFirst({
+        where: { route, isExpired: false, expiresAt: { gt: now } },
+        select: { id: true },
+      });
+      if (taken) return 'taken' as const;
+
+      await tx.share.create({
+        data: {
+          id: shareId,
+          type: 'file',
+          route,
+          fileUrl: relativePath,
+          pinHash: pin ? await hashPin(pin) : null,
+          expiresAt,
+          userId: await currentUserId(),
+        },
+      });
+      await tx.file.create({
+        data: {
+          shareId,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: mimeTypeFor(file.name, file.type),
+        },
+      });
+      return 'created' as const;
+    });
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+
+  if (outcome === 'taken') {
+    await rm(directory, { recursive: true, force: true }).catch(() => {});
+    return { ok: false, error: ROUTE_TAKEN_ERROR };
+  }
+
+  if (pin) {
+    await setUnlockCookieForRoute(route, expiresAt);
+  }
+
+  return { ok: true, route };
+}
+
+/**
+ * Verify a PIN for a protected share (useActionState).
+ * On success an unlock cookie is set so the content page and the download
+ * route accept the request until the cookie (or the share) expires.
+ */
+export async function verifyPinAction(
+  _prevState: PinFormState,
+  formData: FormData,
+): Promise<PinFormState> {
+  const shareId = String(formData.get('shareId') ?? '');
+  const route = String(formData.get('route') ?? '');
+  const pin = String(formData.get('pin') ?? '');
+
+  if (!shareId || !route) {
+    return {
+      ok: false,
+      error: 'This share is no longer available.',
+      expired: true,
+    };
+  }
+
+  const share = await prisma.share.findUnique({
+    where: { id: shareId },
+    select: { route: true, pinHash: true, isExpired: true, expiresAt: true },
+  });
+
+  if (!share || share.route !== route) {
+    return {
+      ok: false,
+      error: 'This share is no longer available.',
+      expired: true,
+    };
+  }
+  if (isShareExpired(share)) {
+    return { ok: false, error: 'This share has expired.', expired: true };
+  }
+  if (!share.pinHash) {
+    return { ok: true };
+  }
+
+  const valid = await comparePinWithHash(pin, share.pinHash);
+  if (!valid) {
+    return { ok: false, error: 'Incorrect PIN — please try again.' };
+  }
+
+  await setUnlockCookieForRoute(share.route, share.expiresAt);
+  return { ok: true };
+}

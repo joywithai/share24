@@ -1,0 +1,119 @@
+// Corium — Prisma schema
+//
+// Generator: Rust-free `prisma-client` (pure TypeScript output, no native
+// engine binaries). The client connects to PostgreSQL through the
+// `@prisma/adapter-pg` driver adapter — see `lib/prisma.ts`.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "esm"
+}
+
+// Prisma 7: the connection URL no longer lives in the schema.
+//  - CLI (migrate/…):  `prisma.config.ts` → `datasource.url`
+//  - Runtime client:   `lib/prisma.ts` → `PrismaPg` driver adapter
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Auth (Better Auth standard schema: user, session, account, verification)
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  shares        Share[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Core domain
+// ---------------------------------------------------------------------------
+
+enum ShareType {
+  code
+  file
+}
+
+model Share {
+  id        String    @id @default(cuid())
+  type      ShareType
+  /// Custom URL path chosen by the author. Unique among *active* shares;
+  /// reused automatically once the previous share has expired.
+  route     String
+  /// Text/code content — set when `type` is `code`.
+  content   String?
+  /// Path (relative to the uploads root) of the stored file — set when
+  /// `type` is `file`.
+  fileUrl   String?
+  /// bcrypt hash of the optional 4-digit PIN.
+  pinHash   String?
+  /// createdAt + 24 hours.
+  expiresAt DateTime
+  /// Soft-delete flag. Flipped lazily on access (V1 has no cron).
+  isExpired Boolean   @default(false)
+  /// Null for anonymous shares.
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  file      File?
+  createdAt DateTime  @default(now())
+
+  @@index([route, isExpired, expiresAt])
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+}
+
+model File {
+  id       String @id @default(cuid())
+  shareId  String @unique
+  share    Share  @relation(fields: [shareId], references: [id], onDelete: Cascade)
+  fileName String
+  fileSize Int
+  mimeType String
+}

@@ -1,0 +1,53 @@
+{
+  "name": "share24",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000 -H 0.0.0.0",
+    "build": "next build",
+    "start": "next start -p 3000 -H 0.0.0.0",
+    "db:dev": "node scripts/db.mjs",
+    "db:generate": "node scripts/prisma.mjs generate",
+    "db:seed": "node scripts/seed.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "lint": "biome check",
+    "format": "biome format --write"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^3.10.0",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "bcryptjs": "^3.0.3",
+    "better-auth": "^1.7.6",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "monaco-editor": "^0.57.0",
+    "next": "15.5.26",
+    "pg": "^8.23.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-hook-form": "^7.88.0",
+    "tailwind-merge": "^3.7.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.0",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^20",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^18.0.3",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "jsdom": "^30.1.1",
+    "prisma": "^7.10.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^3.2.7"
+  }
+}
