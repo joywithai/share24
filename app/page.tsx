@@ -64,8 +64,8 @@ const actions = [
 ];
 
 /**
- * Homepage — a static Server Component. Wordmark, three steps, the link box
- * and the two entry points. Nothing more.
+ * Homepage — a static Server Component. Wordmark, the name box, the two entry
+ * points, then the three steps. Nothing more.
  */
 export default function HomePage() {
   return (
@@ -80,28 +80,6 @@ export default function HomePage() {
       {/* The whole product in one box: name → link. Type (or paste) a name
           somebody shared with you and Go straight to it. */}
       <RouteGoBox />
-
-      {/* The three steps as a flow, not as three boxes: a numbered node with
-          a hairline running out of it, then plain type underneath. */}
-      <ol className="mt-12 grid w-full max-w-2xl gap-x-6 gap-y-7 text-left sm:grid-cols-3">
-        {steps.map((step, i) => (
-          <li key={step.title} className="group min-w-0">
-            <div className="flex items-center gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent/25 bg-accent/10 font-mono text-[10px] text-accent tabular-nums transition-colors group-hover:border-accent/50 group-hover:bg-accent/15">
-                {String(i + 1).padStart(2, '0')}
-              </span>
-              <span
-                aria-hidden
-                className="h-px flex-1 bg-gradient-to-r from-line via-line/70 to-transparent"
-              />
-            </div>
-            <p className="mt-3 text-sm font-semibold">{step.title}</p>
-            <p className="mt-1 text-xs leading-relaxed break-words text-sub">
-              {step.text}
-            </p>
-          </li>
-        ))}
-      </ol>
 
       <div className="mt-8 grid w-full max-w-2xl gap-3 sm:grid-cols-2 sm:gap-4">
         {actions.map((action) => (
@@ -138,6 +116,32 @@ export default function HomePage() {
           </Link>
         ))}
       </div>
+
+      {/* Primary actions first: the two ways to create a share sit right
+          under the name box, where the eye already is.
+
+          The three steps, as a flow rather than three boxes: a numbered node
+          with a hairline running out of it, then plain type underneath., not as three boxes: a numbered node with
+          a hairline running out of it, then plain type underneath. */}
+      <ol className="mt-12 grid w-full max-w-2xl gap-x-6 gap-y-7 text-left sm:grid-cols-3">
+        {steps.map((step, i) => (
+          <li key={step.title} className="group min-w-0">
+            <div className="flex items-center gap-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent/25 bg-accent/10 font-mono text-[10px] text-accent tabular-nums transition-colors group-hover:border-accent/50 group-hover:bg-accent/15">
+                {String(i + 1).padStart(2, '0')}
+              </span>
+              <span
+                aria-hidden
+                className="h-px flex-1 bg-gradient-to-r from-line via-line/70 to-transparent"
+              />
+            </div>
+            <p className="mt-3 text-sm font-semibold">{step.title}</p>
+            <p className="mt-1 text-xs leading-relaxed break-words text-sub">
+              {step.text}
+            </p>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
