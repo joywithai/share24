@@ -8,7 +8,7 @@
  * therefore only pulled in on the pages that need it.
  */
 import * as monaco from 'monaco-editor';
-import { useEffect, useRef } from 'react';
+import { type MutableRefObject, useEffect, useRef } from 'react';
 
 /**
  * Bundle Monaco's web workers with the app (no CDN — the app must work fully
@@ -64,7 +64,7 @@ let themeReady = false;
 function ensureTheme() {
   if (themeReady) return;
   themeReady = true;
-  monaco.editor.defineTheme('corium', {
+  monaco.editor.defineTheme('sharetofnd', {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -82,6 +82,20 @@ function ensureTheme() {
   });
 }
 
+/**
+ * Imperative "find in code" handle — the viewer toolbar uses it to highlight
+ * matches and glide to them. Matches are always visited in document order, so
+ * a word that occurs many times is shown top-first.
+ */
+export interface CodeEditorApi {
+  /** Highlight every match of `query` and smooth-scroll to the first one. */
+  find(query: string): { count: number; index: number };
+  /** Smooth-scroll to the next match (wraps around at the end). */
+  next(): { count: number; index: number };
+  /** Drop all highlights. */
+  clear(): void;
+}
+
 export interface CodeEditorProps {
   value: string;
   onChange?: (value: string) => void;
@@ -92,6 +106,8 @@ export interface CodeEditorProps {
   /** Monaco language id. V1 shares are stored as plain text. */
   language?: string;
   ariaLabel?: string;
+  /** Filled with the find/next/clear handle while the editor is mounted. */
+  apiRef?: MutableRefObject<CodeEditorApi | null>;
 }
 
 export function CodeEditor({
@@ -101,6 +117,7 @@ export function CodeEditor({
   height = '420px',
   language = 'plaintext',
   ariaLabel = 'Code editor',
+  apiRef,
 }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -111,6 +128,85 @@ export function CodeEditor({
   // destroy the caret and undo stack).
   const initialValueRef = useRef(value);
 
+  // --- find-in-code state (highlight + smooth scroll) ---------------------
+  const matchesRef = useRef<monaco.Range[]>([]);
+  const currentRef = useRef(-1);
+  const decorationsRef =
+    useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+
+  function reveal(index: number) {
+    const editor = editorRef.current;
+    const range = matchesRef.current[index];
+    if (!editor || !range) return;
+    editor.revealRangeInCenter(range, monaco.editor.ScrollType.Smooth);
+  }
+
+  function paint() {
+    const editor = editorRef.current;
+    if (!editor) return;
+    decorationsRef.current ??= editor.createDecorationsCollection([]);
+    decorationsRef.current.set(
+      matchesRef.current.map((range, i) => ({
+        range,
+        options: {
+          className:
+            i === currentRef.current ? 'find-match-current' : 'find-match',
+        },
+      })),
+    );
+  }
+
+  function status() {
+    return { count: matchesRef.current.length, index: currentRef.current };
+  }
+
+  const api: CodeEditorApi = {
+    find(query) {
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      if (!editor || !model || !query) {
+        api.clear();
+        return status();
+      }
+      // Document order ⇒ the first occurrence in the file comes first.
+      const matches = model.findMatches(
+        query,
+        false,
+        /* isRegex */ false,
+        /* matchCase */ false,
+        /* wordSeparators */ null,
+        /* captureMatches */ false,
+      );
+      matchesRef.current = matches.map((match) => match.range);
+      currentRef.current = matches.length > 0 ? 0 : -1;
+      paint();
+      if (matches.length > 0) reveal(0);
+      return status();
+    },
+    next() {
+      const count = matchesRef.current.length;
+      if (count === 0) return status();
+      currentRef.current = (currentRef.current + 1) % count;
+      paint();
+      reveal(currentRef.current);
+      return status();
+    },
+    clear() {
+      matchesRef.current = [];
+      currentRef.current = -1;
+      decorationsRef.current?.set([]);
+      return status();
+    },
+  };
+
+  useEffect(() => {
+    if (!apiRef) return;
+    apiRef.current = api;
+    return () => {
+      apiRef.current = null;
+    };
+  });
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -119,7 +215,7 @@ export function CodeEditor({
     const editor = monaco.editor.create(container, {
       value: initialValueRef.current,
       language,
-      theme: 'corium',
+      theme: 'sharetofnd',
       fontFamily: EDITOR_FONT_FAMILY,
       fontSize: 13,
       lineHeight: 20,
@@ -143,6 +239,7 @@ export function CodeEditor({
 
     return () => {
       subscription.dispose();
+      decorationsRef.current = null;
       editor.dispose();
       editorRef.current = null;
     };

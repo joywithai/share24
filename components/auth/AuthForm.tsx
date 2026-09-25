@@ -118,8 +118,8 @@ export function AuthForm({ redirectTarget }: AuthFormProps) {
             {isSignup ? 'Create an account' : 'Welcome back'}
           </CardTitle>
           <CardDescription>
-            Optional — Corium works fine without an account. Signing in lets you
-            see all your shares on one page.
+            Optional — Sharetofnd works fine without an account. Signing in lets
+            you see all your shares on one page.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -1,10 +1,11 @@
 @import "tailwindcss";
 
 /*
- * Corium design tokens (Tailwind v4 CSS-first configuration).
+ * Sharetofnd design tokens (Tailwind v4 CSS-first configuration).
  *
  *   Background #0B0D0F · Card #12161B · Border #1E242D
  *   Text #E5E7EB · Secondary #94A3B8 · Accent #3B82F6
+ *   Brand: Share #4f9cf9 · to #a78bfa · fnd #fbbf24
  *
  * The editor font stack prefers JetBrains Mono / Fira Code when the user has
  * them installed and falls back to the system monospace stack.
@@ -20,6 +21,10 @@
   --color-accent-soft: #2563eb;
   --color-danger: #f87171;
   --color-ok: #34d399;
+  /* Three-part wordmark: Share / to / fnd */
+  --color-brand-1: #4f9cf9;
+  --color-brand-2: #a78bfa;
+  --color-brand-3: #fbbf24;
 
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -49,4 +54,16 @@ body {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line) transparent;
+}
+
+/* In-editor "find" matches (Monaco decorations) */
+.find-match {
+  background: rgb(79 156 249 / 0.22);
+  border-radius: 2px;
+}
+
+.find-match-current {
+  background: rgb(251 191 36 / 0.4);
+  outline: 1px solid rgb(251 191 36 / 0.85);
+  border-radius: 2px;
 }

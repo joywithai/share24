@@ -1,4 +1,4 @@
-# Corium (share24)
+# Sharetofnd (share24)
 
 Temporary sharing for developers — somewhere between Pastebin and WeTransfer,
 but minimal. Give it a route, get a link. Everything self-destructs after
@@ -60,7 +60,7 @@ npm run db:dev            # leave running in another terminal
 npm run db:generate
 
 # 3. (Optional) seed a demo user + sample shares
-npm run db:seed           # demo@corium.dev / password123
+npm run db:seed           # demo@sharetofnd.dev / password123
 
 # 4. Run the app
 npm run dev               # http://localhost:3000

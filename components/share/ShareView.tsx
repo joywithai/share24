@@ -1,4 +1,4 @@
-import { CodeBlock } from '@/components/share/CodeBlock';
+import { CodeViewer } from '@/components/share/CodeViewer';
 import { CopyButton } from '@/components/share/CopyButton';
 import { ExpiryCountdown } from '@/components/share/ExpiryCountdown';
 import { formatBytes } from '@/lib/file';
@@ -84,7 +84,7 @@ export function ShareView({
       </div>
 
       {type === 'code' ? (
-        <CodeBlock value={content} />
+        <CodeViewer value={content} />
       ) : (
         file && (
           <div className="rounded-xl border border-line bg-card p-6">

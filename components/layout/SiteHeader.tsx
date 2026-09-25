@@ -1,6 +1,6 @@
 import Link from 'next/link';
-
 import { AuthNav } from '@/components/layout/AuthNav';
+import { Brand } from '@/components/layout/Brand';
 
 /**
  * Static site chrome — the session-dependent part lives in the small client
@@ -8,13 +8,9 @@ import { AuthNav } from '@/components/layout/AuthNav';
  */
 export function SiteHeader() {
   return (
-    <header className="flex items-center justify-between py-5">
-      <Link
-        href="/"
-        className="flex items-baseline gap-1.5 font-mono text-lg font-semibold tracking-tight text-fg"
-      >
-        <span className="text-accent">corium</span>
-        <span className="text-xs font-normal text-sub">24h</span>
+    <header className="flex items-center justify-between gap-3 py-5">
+      <Link href="/" aria-label="Sharetofnd — home">
+        <Brand />
       </Link>
       <AuthNav />
     </header>

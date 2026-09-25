@@ -31,8 +31,8 @@ const now = new Date();
 const day = 24 * 60 * 60 * 1000;
 const iso = (d) => d.toISOString();
 
-// --- Demo user (demo@corium.dev / password123) ----------------------------
-const DEMO_EMAIL = 'demo@corium.dev';
+// --- Demo user (demo@sharetofnd.dev / password123) -----------------------
+const DEMO_EMAIL = 'demo@sharetofnd.dev';
 const DEMO_PASSWORD = 'password123';
 
 const userRes = await client.query(
@@ -111,7 +111,7 @@ if (codeTaken.rows.length === 0) {
      VALUES ($1, 'code', 'hello-world', $2, $3, $4, $5)`,
     [
       crypto.randomUUID(),
-      '// shared via corium — this text vanishes in 24 hours\n\nfunction greet(name) {\n  return "hello, " + name + "!";\n}\n\nconsole.log(greet("world"));\n',
+      '// shared via sharetofnd — this text vanishes in 24 hours\n\nfunction greet(name) {\n  return "hello, " + name + "!";\n}\n\nconsole.log(greet("world"));\n',
       iso(new Date(now.getTime() + day)),
       userId,
       iso(now),
@@ -132,7 +132,7 @@ if (fileTaken.rows.length === 0) {
   const dir = path.join(uploads, shareId);
   mkdirSync(dir, { recursive: true });
   const storedName = `${shareId}.txt`;
-  const content = 'Corium demo file. Download it before it burns.\n';
+  const content = 'Sharetofnd demo file. Download it before it burns.\n';
   writeFileSync(path.join(dir, storedName), content);
 
   await client.query(

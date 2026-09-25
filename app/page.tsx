@@ -1,12 +1,27 @@
 import Link from 'next/link';
 
-import { buttonVariants } from '@/components/ui/button';
+import { Brand } from '@/components/layout/Brand';
+
+const steps = [
+  {
+    title: 'Add',
+    text: 'Paste or write code — or drop a file.',
+  },
+  {
+    title: 'Name it',
+    text: 'Take any slug you like, e.g. “any-name”.',
+  },
+  {
+    title: 'Share',
+    text: 'Send the link. It burns after 24 hours.',
+  },
+];
 
 const actions = [
   {
     href: '/create/code',
     title: 'Share code',
-    description: 'Paste code or text into an editor, pick a route, get a link.',
+    description: 'Paste or write code or text.',
     icon: (
       <svg
         aria-hidden
@@ -14,7 +29,7 @@ const actions = [
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
-        className="h-6 w-6"
+        className="h-5 w-5 shrink-0"
       >
         <path
           d="m8 7-5 5 5 5M16 7l5 5-5 5"
@@ -27,7 +42,7 @@ const actions = [
   {
     href: '/create/file',
     title: 'Share a file',
-    description: 'Drop a PNG, JPG, WEBP, PDF, TXT, DOC or DOCX — up to 10 MB.',
+    description: 'PNG, JPG, WEBP, PDF, TXT, DOC, DOCX · 10 MB.',
     icon: (
       <svg
         aria-hidden
@@ -35,7 +50,7 @@ const actions = [
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
-        className="h-6 w-6"
+        className="h-5 w-5 shrink-0"
       >
         <path
           d="M12 16V4m0 0-4 4m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"
@@ -48,40 +63,68 @@ const actions = [
 ];
 
 /**
- * Homepage — a static Server Component. Two buttons, nothing else.
+ * Homepage — a static Server Component. Wordmark, three steps, the link box
+ * and the two entry points. Nothing more.
  */
 export default function HomePage() {
   return (
-    <div className="flex flex-col items-center pt-16 text-center sm:pt-24">
-      <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-        Share it. <span className="text-accent">Let it burn.</span>
+    <div className="flex flex-col items-center pt-6 text-center sm:pt-12">
+      <h1>
+        <Brand size="text-4xl sm:text-5xl" tag={false} />
       </h1>
-      <p className="mt-4 max-w-md text-base text-sub">
-        Temporary sharing for developers. No account, no forms — give Corium a
-        route, get a link, and everything vanishes after 24 hours.
+      <p className="mt-4 max-w-md text-sm leading-relaxed text-sub sm:text-base">
+        Paste or drop it, name it, share the link — it burns in 24 hours.
       </p>
 
-      <div className="mt-12 grid w-full max-w-2xl gap-4 sm:grid-cols-2">
+      {/* The whole product in one box: your name becomes the link. */}
+      <div className="mt-8 flex w-full max-w-md items-stretch overflow-hidden rounded-lg border border-line bg-card font-mono text-xs sm:text-sm">
+        <span className="flex shrink-0 items-center border-r border-line bg-card-soft px-3 py-2.5 text-sub">
+          https://sharetofnd/
+        </span>
+        <span className="flex min-w-0 flex-1 items-center truncate px-3 py-2.5 text-fg">
+          any-name
+        </span>
+      </div>
+      <p className="mt-2 text-xs text-sub/70">
+        You pick the name — that&rsquo;s the whole link.
+      </p>
+
+      <ol className="mt-10 grid w-full max-w-2xl gap-3 text-left sm:grid-cols-3">
+        {steps.map((step, i) => (
+          <li
+            key={step.title}
+            className="min-w-0 rounded-lg border border-line bg-card p-4"
+          >
+            <span className="font-mono text-xs text-brand-2">
+              {String(i + 1).padStart(2, '0')}
+            </span>
+            <p className="mt-1 text-sm font-semibold">{step.title}</p>
+            <p className="mt-1 text-xs leading-relaxed text-sub break-words">
+              {step.text}
+            </p>
+          </li>
+        ))}
+      </ol>
+
+      <div className="mt-6 grid w-full max-w-2xl gap-4 sm:grid-cols-2">
         {actions.map((action) => (
           <Link
             key={action.href}
             href={action.href}
-            className={`${buttonVariants({ variant: 'secondary', size: 'lg' })} h-auto flex-col items-start justify-start gap-3 rounded-xl px-6 py-6 text-left transition-colors hover:border-accent/50 hover:bg-card-soft`}
+            className="flex min-w-0 items-center gap-3 rounded-xl border border-line bg-card-soft px-5 py-4 text-left transition-colors hover:border-accent/50 hover:bg-card"
           >
             <span className="text-accent">{action.icon}</span>
-            <span className="text-lg font-semibold text-fg">
-              {action.title}
-            </span>
-            <span className="text-sm leading-relaxed text-sub">
-              {action.description}
+            <span className="min-w-0">
+              <span className="block text-base font-semibold">
+                {action.title}
+              </span>
+              <span className="block text-xs leading-relaxed text-sub break-words">
+                {action.description}
+              </span>
             </span>
           </Link>
         ))}
       </div>
-
-      <p className="mt-12 text-xs text-sub/70">
-        Optional 4-digit PIN · custom routes · 24-hour self-destruction
-      </p>
     </div>
   );
 }

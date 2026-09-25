@@ -7,6 +7,7 @@ import { useForm } from 'react-hook-form';
 
 import { createFileShare, type ShareResult } from '@/app/actions/share';
 import { FileDrop } from '@/components/file/FileDrop';
+import { RouteField } from '@/components/share/RouteField';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -36,14 +37,11 @@ export default function CreateFilePage() {
   const {
     register,
     handleSubmit,
-    watch,
     formState: { errors },
   } = useForm<FileShareInput>({
     resolver: zodResolver(fileShareSchema),
     defaultValues: { route: '', pin: '' },
   });
-
-  const route = watch('route');
 
   function handleFile(next: File | null) {
     setFile(next);
@@ -85,7 +83,8 @@ export default function CreateFilePage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Share a file</h1>
         <p className="mt-1 text-sm text-sub">
-          Drop a file, pick a route, get a download link that dies in 24 hours.
+          Drop a file, name the route, get a download link that dies in 24
+          hours.
         </p>
       </div>
 
@@ -104,19 +103,16 @@ export default function CreateFilePage() {
 
         <Card>
           <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label htmlFor="route">Route</Label>
-              <Input id="route" placeholder="my-file" {...register('route')} />
+              <RouteField
+                id="route"
+                placeholder="my-file"
+                {...register('route')}
+              />
               {errors.route ? (
                 <p role="alert" className="text-xs text-danger">
                   {errors.route.message}
-                </p>
-              ) : route ? (
-                <p className="text-xs text-sub">
-                  Your link:{' '}
-                  <span className="font-mono text-accent">
-                    /{normalizeRoute(route)}
-                  </span>
                 </p>
               ) : (
                 <p className="text-xs text-sub/70">
@@ -124,7 +120,7 @@ export default function CreateFilePage() {
                 </p>
               )}
             </div>
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label htmlFor="pin">
                 PIN <span className="font-normal text-sub/60">(optional)</span>
               </Label>

@@ -2,6 +2,8 @@
 
 import dynamic from 'next/dynamic';
 
+import type { CodeEditorApi } from '@/components/editor/CodeEditor';
+
 /**
  * Read-only code display for shared content. The Monaco editor is only
  * importable client-side, so it is pulled in with `dynamic` + `ssr: false`
@@ -19,13 +21,20 @@ const CodeEditor = dynamic(
   },
 );
 
-export function CodeBlock({ value }: { value: string }) {
+export function CodeBlock({
+  value,
+  apiRef,
+}: {
+  value: string;
+  apiRef?: React.MutableRefObject<CodeEditorApi | null>;
+}) {
   return (
     <CodeEditor
       value={value}
       readOnly
       height="min(60vh, 560px)"
       ariaLabel="Shared code"
+      apiRef={apiRef}
     />
   );
 }

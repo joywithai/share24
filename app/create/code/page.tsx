@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 
 import { createCodeShare, type ShareResult } from '@/app/actions/share';
+import { RouteField } from '@/components/share/RouteField';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -54,7 +55,6 @@ export default function CreateCodePage() {
   });
 
   const code = watch('code');
-  const route = watch('route');
 
   const onSubmit = handleSubmit(async (values) => {
     setPending(true);
@@ -78,7 +78,7 @@ export default function CreateCodePage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Share code</h1>
         <p className="mt-1 text-sm text-sub">
-          Paste code or text, pick a route, get a link that dies in 24 hours.
+          Paste or write code, name the route, get a link that dies in 24 hours.
         </p>
       </div>
 
@@ -108,9 +108,9 @@ export default function CreateCodePage() {
 
         <Card>
           <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label htmlFor="route">Route</Label>
-              <Input
+              <RouteField
                 id="route"
                 placeholder="my-snippet"
                 {...register('route')}
@@ -119,20 +119,13 @@ export default function CreateCodePage() {
                 <p role="alert" className="text-xs text-danger">
                   {errors.route.message}
                 </p>
-              ) : route ? (
-                <p className="text-xs text-sub">
-                  Your link:{' '}
-                  <span className="font-mono text-accent">
-                    /{normalizeRoute(route)}
-                  </span>
-                </p>
               ) : (
                 <p className="text-xs text-sub/70">
                   3–50 chars · a–z, 0–9, - and _ only
                 </p>
               )}
             </div>
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label htmlFor="pin">
                 PIN <span className="font-normal text-sub/60">(optional)</span>
               </Label>
