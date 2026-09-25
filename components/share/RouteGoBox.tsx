@@ -48,10 +48,13 @@ export function RouteGoBox() {
 
   return (
     <form onSubmit={handleSubmit} className="mt-8 w-full max-w-md text-left">
-      <div className="flex w-full min-w-0 items-stretch overflow-hidden rounded-lg border border-line bg-card font-mono text-xs transition-colors focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/30 sm:text-sm">
+      {/* Input group: a soft pill for the origin, the editable name, and the
+          primary action as an inset pill (matches the rounded shell instead of
+          being clipped flat against it). */}
+      <div className="flex w-full min-w-0 items-center gap-1 rounded-xl border border-line bg-card p-1 font-mono text-xs shadow-sm transition-colors focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/30 sm:text-sm">
         <span
           aria-hidden
-          className="flex shrink-0 items-center border-r border-line bg-card-soft px-3 py-2.5 text-sub"
+          className="flex h-9 shrink-0 items-center rounded-lg bg-card-soft px-3 text-sub"
         >
           {origin}/
         </span>
@@ -72,13 +75,27 @@ export function RouteGoBox() {
           spellCheck={false}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? 'go-route-error' : undefined}
-          className="h-11 min-w-0 flex-1 bg-transparent px-3 text-fg placeholder:text-sub/60 focus:outline-none"
+          className="h-9 min-w-0 flex-1 bg-transparent px-2 text-fg placeholder:text-sub/60 focus:outline-none"
         />
         <Button
           type="submit"
-          className="shrink-0 rounded-none border-l border-line px-4 font-sans text-xs"
+          className="group h-9 shrink-0 gap-1.5 rounded-lg px-3.5 font-sans text-xs font-semibold"
         >
           Go
+          <svg
+            aria-hidden
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5"
+          >
+            <path
+              d="M5 12h14m0 0-6-6m6 6-6 6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </Button>
       </div>
       {error ? (

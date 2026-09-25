@@ -14,7 +14,21 @@ export default function NotFound() {
       </p>
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <GoBackButton />
-        <Link href="/" className={buttonVariants({ variant: 'outline' })}>
+        <Link href="/" className={buttonVariants({ variant: 'default' })}>
+          <svg
+            aria-hidden
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            className="h-4 w-4"
+          >
+            <path
+              d="m3 10.5 9-6.5 9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
           Go home
         </Link>
       </div>
