@@ -15,7 +15,12 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { config } from 'dotenv';
 import EmbeddedPostgres from 'embedded-postgres';
+
+// Honour a DATABASE_URL set in .env (the same file the app itself reads).
+config();
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

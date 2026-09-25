@@ -49,6 +49,10 @@ light mode, multiple files per share, rate limiting, S3/CDN file storage.
 ```bash
 npm install
 
+# 0. Create your .env (then put a real random value in BETTER_AUTH_SECRET:
+#    node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+cp .env.example .env
+
 # 1. Start the embedded PostgreSQL (data lives in ./.pg, port 5433)
 npm run db:dev            # leave running in another terminal
 
@@ -62,10 +66,11 @@ npm run db:seed           # demo@corium.dev / password123
 npm run dev               # http://localhost:3000
 ```
 
-`.env` is created from `.env.example`; defaults already point at the embedded
-database. If you prefer your own Postgres (local or Neon), just set
-`DATABASE_URL` — and apply the schema with `npx prisma migrate deploy`
-(the migration SQL lives in `prisma/migrations/`).
+Copy `.env.example` to `.env` (step 0 above) — the defaults already point at the
+embedded database, so only `BETTER_AUTH_SECRET` needs a real value. If you
+prefer your own Postgres (local or Neon), just set `DATABASE_URL` — and apply
+the schema with `npx prisma migrate deploy` (the migration SQL lives in
+`prisma/migrations/`).
 
 > **Why `npm run db:generate` instead of `npx prisma generate`?**
 > Prisma 7's CLI still *resolves* the native schema-engine binary on startup
@@ -96,6 +101,16 @@ database. If you prefer your own Postgres (local or Neon), just set
 | `BETTER_AUTH_SECRET` | yes      | Random 32+ byte hex — session cookies, unlock-token HMAC |
 | `NEXT_PUBLIC_APP_URL`| prod     | Public URL; Better Auth cookie scoping. Leave empty locally |
 | `CORIUM_UPLOADS_DIR` | no       | Upload storage root, default `/tmp/corium-uploads` |
+| `UNLOCK_SECRET`      | no       | Separate HMAC secret for PIN unlock cookies; falls back to `BETTER_AUTH_SECRET` |
+| `CORIUM_ALLOWED_ORIGINS` | no   | Comma-separated public origins allowed to post Server Actions when a reverse proxy rewrites `Host` (wildcards ok, e.g. `*.example.app`) |
+| `CORIUM_TRUSTED_ORIGINS` | no   | Comma-separated extra origins accepted by Better Auth's CSRF check |
+
+> **Behind a TLS-terminating proxy (preview tunnels, Vercel, nginx):** the proxy
+> forwards plain `http://` to the app while browsers send `Origin: https://…`.
+> With `NEXT_PUBLIC_APP_URL` unset, `lib/auth.ts` trusts both schemes of the
+> host the request arrived on, so sign-in works on any host. Set
+> `NEXT_PUBLIC_APP_URL` in production for a fixed origin, and use the two
+> `CORIUM_*_ORIGINS` knobs only if your proxy also rewrites `Host`.
 
 ## Architecture
 

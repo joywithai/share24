@@ -2,7 +2,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import bcrypt from 'bcryptjs';
 /**
  * Development seed: a demo user plus sample shares (one active code share,
  * one active file share, one expired share) so the profile page and the
@@ -13,6 +12,7 @@ import bcrypt from 'bcryptjs';
  * Uses plain SQL on purpose — the generated Prisma client is bundler-only,
  * and a seed script should run with a bare `node`.
  */
+import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import { config } from 'dotenv';
 import pg from 'pg';
 
@@ -32,30 +32,72 @@ const day = 24 * 60 * 60 * 1000;
 const iso = (d) => d.toISOString();
 
 // --- Demo user (demo@corium.dev / password123) ----------------------------
+const DEMO_EMAIL = 'demo@corium.dev';
+const DEMO_PASSWORD = 'password123';
+
 const userRes = await client.query(
   'SELECT "id" FROM "User" WHERE "email" = $1',
-  ['demo@corium.dev'],
+  [DEMO_EMAIL],
 );
 let userId = userRes.rows[0]?.id;
 
+/** Insert the Better Auth credential account row for `userId`. */
+async function createCredentialAccount(id, at) {
+  await client.query(
+    `INSERT INTO "Account" ("id", "accountId", "providerId", "userId", "password", "createdAt", "updatedAt")
+     VALUES ($1, $2, 'credential', $3, $4, $5, $5)`,
+    [crypto.randomUUID(), id, id, await hashPassword(DEMO_PASSWORD), at],
+  );
+}
+
 if (!userId) {
   userId = crypto.randomUUID();
-  // better-auth's credential account: bcrypt hash of the password
-  const passwordHash = bcrypt.hashSync('password123', 10);
   const ts = iso(now);
   await client.query(
     `INSERT INTO "User" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
-     VALUES ($1, 'Demo', 'demo@corium.dev', true, $2, $2)`,
-    [userId, ts],
+     VALUES ($1, 'Demo', $2, true, $3, $3)`,
+    [userId, DEMO_EMAIL, ts],
   );
-  await client.query(
-    `INSERT INTO "Account" ("id", "accountId", "providerId", "userId", "password", "createdAt", "updatedAt")
-     VALUES ($1, 'demo-account', 'credential', $2, $3, $4, $4)`,
-    [crypto.randomUUID(), userId, passwordHash, ts],
-  );
-  console.log('[seed] created demo user demo@corium.dev / password123');
+  await createCredentialAccount(userId, ts);
+  console.log(`[seed] created demo user ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
 } else {
-  console.log('[seed] demo user already exists — skipping');
+  // Better Auth verifies account passwords with its own scrypt hash
+  // (`better-auth/crypto`) — not bcrypt — and it only recognises a credential
+  // account whose `accountId` equals the user id (see
+  // `better-auth/dist/api/routes/sign-in.mjs`). Repair either problem so
+  // re-seeding an existing database still leaves a working login.
+  const accountRes = await client.query(
+    `SELECT "id", "accountId", "password" FROM "Account"
+      WHERE "userId" = $1 AND "providerId" = 'credential'
+      ORDER BY "createdAt" LIMIT 1`,
+    [userId],
+  );
+  const account = accountRes.rows[0];
+  const verifies = account?.password
+    ? await verifyPassword({
+        hash: account.password,
+        password: DEMO_PASSWORD,
+      }).catch(() => false)
+    : false;
+
+  if (!account) {
+    await createCredentialAccount(userId, iso(now));
+    console.log(
+      `[seed] created the missing credential account for ${DEMO_EMAIL}`,
+    );
+  } else if (verifies && account.accountId === userId) {
+    console.log('[seed] demo user already exists — skipping');
+  } else {
+    await client.query(
+      `UPDATE "Account"
+          SET "password" = $1, "accountId" = $2, "updatedAt" = $3
+        WHERE "id" = $4`,
+      [await hashPassword(DEMO_PASSWORD), userId, iso(now), account.id],
+    );
+    console.log(
+      `[seed] repaired the demo user's credential account (${DEMO_EMAIL} / ${DEMO_PASSWORD})`,
+    );
+  }
 }
 
 // --- Sample active code share ---------------------------------------------

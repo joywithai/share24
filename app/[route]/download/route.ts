@@ -1,7 +1,5 @@
 import { readFile } from 'node:fs/promises';
 
-import { NextResponse } from 'next/server';
-
 import { isShareExpired } from '@/lib/expire';
 import {
   isValidUnlockToken,
@@ -40,7 +38,15 @@ export async function GET(
     const cookieHeader = request.headers.get('cookie') ?? '';
     const token = parseCookieHeader(cookieHeader).get(unlockCookieName(route));
     if (!token || !isValidUnlockToken(token, route)) {
-      return NextResponse.redirect(new URL(`/${route}`, request.url), 303);
+      // A *relative* Location on purpose: behind a TLS-terminating proxy
+      // (sandbox previews, Vercel) `request.url` is the internal `http://`
+      // URL, so an absolute redirect would send the browser to a scheme the
+      // public host does not serve. Relative resolves against the origin the
+      // browser actually used.
+      return new Response(null, {
+        status: 303,
+        headers: { Location: `/${route}`, 'Cache-Control': 'no-store' },
+      });
     }
   }
 
