@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { Brand } from '@/components/layout/Brand';
+import { RouteGoBox } from '@/components/share/RouteGoBox';
 
 const steps = [
   {
@@ -76,18 +77,9 @@ export default function HomePage() {
         Paste or drop it, name it, share the link — it burns in 24 hours.
       </p>
 
-      {/* The whole product in one box: your name becomes the link. */}
-      <div className="mt-8 flex w-full max-w-md items-stretch overflow-hidden rounded-lg border border-line bg-card font-mono text-xs sm:text-sm">
-        <span className="flex shrink-0 items-center border-r border-line bg-card-soft px-3 py-2.5 text-sub">
-          https://sharetofnd/
-        </span>
-        <span className="flex min-w-0 flex-1 items-center truncate px-3 py-2.5 text-fg">
-          any-name
-        </span>
-      </div>
-      <p className="mt-2 text-xs text-sub/70">
-        You pick the name — that&rsquo;s the whole link.
-      </p>
+      {/* The whole product in one box: name → link. Type (or paste) a name
+          somebody shared with you and Go straight to it. */}
+      <RouteGoBox />
 
       <ol className="mt-10 grid w-full max-w-2xl gap-3 text-left sm:grid-cols-3">
         {steps.map((step, i) => (

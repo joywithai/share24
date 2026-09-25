@@ -1,5 +1,6 @@
 import Link from 'next/link';
 
+import { GoBackButton } from '@/components/layout/GoBackButton';
 import { buttonVariants } from '@/components/ui/button';
 
 export default function NotFound() {
@@ -11,12 +12,12 @@ export default function NotFound() {
         This link doesn&rsquo;t exist — or the share it pointed to expired and
         released its route.
       </p>
-      <Link
-        href="/"
-        className={`${buttonVariants({ variant: 'outline' })} mt-8`}
-      >
-        Go home
-      </Link>
+      <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <GoBackButton />
+        <Link href="/" className={buttonVariants({ variant: 'outline' })}>
+          Go home
+        </Link>
+      </div>
     </div>
   );
 }

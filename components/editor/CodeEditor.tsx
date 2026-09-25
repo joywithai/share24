@@ -8,7 +8,7 @@
  * therefore only pulled in on the pages that need it.
  */
 import * as monaco from 'monaco-editor';
-import { type MutableRefObject, useCallback, useEffect, useRef } from 'react';
+import { type MutableRefObject, useEffect, useRef } from 'react';
 
 /**
  * Bundle Monaco's web workers with the app (no CDN — the app must work fully
@@ -207,24 +207,6 @@ export function CodeEditor({
     };
   });
 
-  // When the content fits the box (e.g. an empty editor) Monaco must not eat
-  // the mouse wheel — otherwise the *page* becomes unscrollable while the
-  // cursor sits over the editor, which feels broken. Wheel handling is turned
-  // back on as soon as the content actually overflows the viewport.
-  const wheelEnabledRef = useRef(true);
-  // Stable across renders, so it is safe to depend on in the effect below
-  // (a changing dependency would tear down and rebuild the editor).
-  const syncWheel = useCallback(
-    (editor: monaco.editor.IStandaloneCodeEditor) => {
-      const fits = editor.getScrollHeight() <= editor.getLayoutInfo().height;
-      const wanted = !fits;
-      if (wheelEnabledRef.current === wanted) return;
-      wheelEnabledRef.current = wanted;
-      editor.updateOptions({ scrollbar: { handleMouseWheel: wanted } });
-    },
-    [],
-  );
-
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -244,40 +226,72 @@ export function CodeEditor({
       readOnly,
       padding: { top: 14, bottom: 14 },
       renderLineHighlight: 'line',
-      scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+      scrollbar: {
+        verticalScrollbarSize: 8,
+        horizontalScrollbarSize: 8,
+        // Scroll chaining (important — see below).
+        //
+        // Monaco's default is `alwaysConsumeMouseWheel: true`, meaning it
+        // swallows *every* wheel event over the editor, even when the content
+        // already sits at the top or the bottom. The page then refuses to
+        // scroll while the pointer is over the box, which traps the visitor:
+        // the route/PIN fields and the "Create share" button below become
+        // unreachable without first moving the pointer out of the editor.
+        //
+        // Switching it off means Monaco only consumes the event while it can
+        // actually scroll; at either end the browser scrolls the page as
+        // usual. This replaces a hand-rolled "does the content fit?" check,
+        // which had to guess and got it wrong when the layout changed.
+        alwaysConsumeMouseWheel: false,
+      },
       overviewRulerLanes: 0,
       hideCursorInOverviewRuler: true,
       contextmenu: !readOnly,
     });
     editorRef.current = editor;
-    syncWheel(editor);
 
     const subscription = editor.onDidChangeModelContent(() => {
       onChangeRef.current?.(editor.getValue());
-      syncWheel(editor);
-    });
-    const layoutSubscription = editor.onDidLayoutChange(() => {
-      syncWheel(editor);
     });
 
     return () => {
       subscription.dispose();
-      layoutSubscription.dispose();
       decorationsRef.current = null;
       editor.dispose();
       editorRef.current = null;
     };
     // The editor is created once per language/read-only mode; content changes
     // flow through the sync effect below.
-  }, [language, readOnly, syncWheel]);
+  }, [language, readOnly]);
 
   // Keep the model in sync when the controlled value changes from outside
   // (e.g. form reset). Skipped when the values already match, so typing does
   // not fight with the caret.
+  //
+  // Applied as a regular *edit* rather than `setValue`: `setValue` rebuilds
+  // the model, which throws the caret back to the very first line and wipes
+  // the undo stack — if a re-render ever lands with a stale value, the visitor
+  // sees the caret snap to the top and their typing stops tracking.
   useEffect(() => {
     const editor = editorRef.current;
-    if (editor && editor.getValue() !== value) {
-      editor.setValue(value);
+    const model = editor?.getModel();
+    if (!editor || !model) return;
+    if (model.getValue() === value) return;
+
+    const selection = editor.getSelection();
+    model.pushEditOperations(
+      [],
+      [{ range: model.getFullModelRange(), text: value }],
+      () => null,
+    );
+    // Restore the caret, clamped to the new text (the document may be shorter
+    // than it was before the edit).
+    if (selection) {
+      const line = Math.min(selection.startLineNumber, model.getLineCount());
+      const maxColumn = model.getLineMaxColumn(line);
+      const startColumn = Math.min(selection.startColumn, maxColumn);
+      const endColumn = Math.min(selection.endColumn, maxColumn);
+      editor.setSelection(new monaco.Range(line, startColumn, line, endColumn));
     }
   }, [value]);
 

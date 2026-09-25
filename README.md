@@ -17,6 +17,8 @@ something to share → no signup, no forms → paste it + pick a route → link
   executables, active web content and video/audio (block-list, not allow-list)
 - **Custom routes** — `/{a-z0-9_-}` 3–50 chars; reserved words blocked; a route
   is free again as soon as the previous share expires
+- **Open by name** — type (or paste) a share name in the homepage box to jump
+  straight to that link; unknown names land on the 404 page with a Back button
 - **Optional 4-digit PIN** — bcrypt-hashed; unlocking mints a short-lived,
   HMAC-signed cookie for that route (creator auto-unlocks on creation)
 - **24-hour expiry** — lazy evaluation on access; `isExpired` flag flipped
