@@ -3,7 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 
 import {
   createFileShare,
@@ -11,6 +11,7 @@ import {
   type ShareResult,
 } from '@/app/actions/share';
 import { FileDrop } from '@/components/file/FileDrop';
+import { PinInput } from '@/components/share/PinInput';
 import {
   type RouteAvailability,
   RouteField,
@@ -23,7 +24,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { fileProblem } from '@/lib/file';
 import { normalizeRoute } from '@/lib/route';
@@ -62,6 +62,7 @@ export default function CreateFilePage() {
   }
 
   const {
+    control,
     register,
     handleSubmit,
     formState: { errors },
@@ -154,19 +155,32 @@ export default function CreateFilePage() {
               <Label htmlFor="pin">
                 PIN <span className="font-normal text-sub/60">(optional)</span>
               </Label>
-              <Input
-                id="pin"
-                inputMode="numeric"
-                maxLength={4}
-                placeholder="4 digits"
-                {...register('pin')}
+              <Controller
+                control={control}
+                name="pin"
+                render={({ field }) => (
+                  <PinInput
+                    id="pin"
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    invalid={Boolean(errors.pin)}
+                    describedBy={
+                      errors.pin ? 'file-pin-error' : 'file-pin-hint'
+                    }
+                  />
+                )}
               />
               {errors.pin ? (
-                <p role="alert" className="text-xs text-danger">
+                <p
+                  id="file-pin-error"
+                  role="alert"
+                  className="text-xs text-danger"
+                >
                   {errors.pin.message}
                 </p>
               ) : (
-                <p className="text-xs text-sub/70">
+                <p id="file-pin-hint" className="text-xs text-sub/70">
                   Viewers must enter this PIN to download the file.
                 </p>
               )}

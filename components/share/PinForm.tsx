@@ -1,10 +1,11 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useActionState, useEffect } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 
 import { verifyPinAction } from '@/app/actions/share';
 import { ExpiryCountdown } from '@/components/share/ExpiryCountdown';
+import { PinInput } from '@/components/share/PinInput';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -31,12 +32,32 @@ export function PinForm({ shareId, route, expiresAt }: PinFormProps) {
   const [state, formAction, pending] = useActionState(verifyPinAction, {
     ok: false,
   });
+  const [pin, setPin] = useState('');
+  const [focusRequest, setFocusRequest] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     if (state.ok) {
       router.refresh();
     }
   }, [state.ok, router]);
+
+  // A refused attempt empties the boxes and puts the caret back in the first
+  // empty one, ready for the next try.
+  const refused = Boolean(state.error) || Boolean(state.expired);
+  useEffect(() => {
+    if (!refused) return;
+    setPin('');
+    setFocusRequest((count) => count + 1);
+  }, [refused]);
+
+  // Four digits in — no need for a separate "Unlock" click. The effect runs
+  // after the value is committed to the DOM, so the hidden input posts the
+  // full PIN.
+  useEffect(() => {
+    if (pin.length < 4 || pending) return;
+    formRef.current?.requestSubmit();
+  }, [pin, pending]);
 
   return (
     <div className="mx-auto max-w-sm">
@@ -72,27 +93,26 @@ export function PinForm({ shareId, route, expiresAt }: PinFormProps) {
         </CardHeader>
         {!state.expired && (
           <CardContent>
-            <form action={formAction} className="space-y-4">
+            <form ref={formRef} action={formAction} className="space-y-4">
               <input type="hidden" name="shareId" value={shareId} />
               <input type="hidden" name="route" value={route} />
               <div className="space-y-2">
                 <Label htmlFor="pin" className="block text-center">
                   Enter the 4-digit PIN
                 </Label>
-                <input
-                  id="pin"
-                  name="pin"
-                  inputMode="numeric"
-                  pattern="\d{4}"
-                  maxLength={4}
-                  required
-                  // Deliberate: the PIN gate is a single-field form — focusing
-                  // it instantly removes a click for keyboard users.
-                  // biome-ignore lint/a11y/noAutofocus: intentional single-field focus
-                  autoFocus
-                  placeholder="····"
-                  className="h-14 w-full rounded-md border border-line bg-bg px-3 text-center font-mono text-2xl tracking-[0.7em] text-fg placeholder:text-sub/40 focus-visible:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
-                />
+                <div className="flex justify-center">
+                  <PinInput
+                    name="pin"
+                    value={pin}
+                    onChange={setPin}
+                    disabled={pending}
+                    invalid={Boolean(state.error)}
+                    // Deliberate: the PIN gate is a single-field form — focusing
+                    // it instantly removes a click for keyboard users.
+                    autoFocus
+                    focusRequest={focusRequest}
+                  />
+                </div>
               </div>
               {state.error && (
                 <p role="alert" className="text-center text-sm text-danger">

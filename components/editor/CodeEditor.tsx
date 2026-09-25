@@ -226,6 +226,12 @@ export function CodeEditor({
       readOnly,
       padding: { top: 14, bottom: 14 },
       renderLineHighlight: 'line',
+      // 10px is Monaco's default; the extra 6px keeps a highlight at column 1
+      // off the line-number gutter. This must be an editor option — padding
+      // the `.view-lines` element from CSS instead moves the text without
+      // updating Monaco's layout, which draws the caret (and the find-match
+      // highlights) one character to the left of where it belongs.
+      lineDecorationsWidth: 16,
       scrollbar: {
         verticalScrollbarSize: 8,
         horizontalScrollbarSize: 8,

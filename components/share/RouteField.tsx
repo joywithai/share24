@@ -59,9 +59,13 @@ function StatusIcon({ availability }: { availability: RouteAvailability }) {
 
 /**
  * The slug input, shown as the link it will become: the live origin as a
- * fixed prefix box (truncated from the *left* on narrow screens, so the
- * meaningful tail stays visible), then the editable name — with a live
- * ✓ / ✕ availability indicator on every keystroke.
+ * prefix chip, then the editable name — with a live ✓ / ✕ availability
+ * indicator on every keystroke.
+ *
+ * A long host (a preview or staging domain, say) is trimmed from the *left*
+ * with a real ellipsis instead of being sliced mid-letter, and the field is
+ * laid out like the homepage "open by name" box: one rounded shell, an inset
+ * chip for the part you cannot edit, and the editable part sitting inside it.
  */
 export function RouteField({
   id,
@@ -83,22 +87,29 @@ export function RouteField({
   }
 
   return (
-    <div className="flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-line bg-card transition-colors focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/30">
+    <div className="flex w-full min-w-0 items-center gap-1 rounded-xl border border-line bg-bg p-1 shadow-sm transition-colors focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/30">
       <span
         aria-hidden
-        className="flex shrink items-center justify-end overflow-hidden border-r border-line bg-card-soft px-2.5 font-mono text-xs text-sub sm:text-sm"
-        style={{ maxWidth: '55%' }}
+        title={`${origin}/`}
+        className="flex h-9 max-w-[45%] shrink-0 items-center overflow-hidden rounded-lg bg-card-soft px-2.5 font-mono text-xs text-sub"
       >
-        <span className="whitespace-nowrap">{origin}/</span>
+        {/* `direction: rtl` puts the ellipsis on the left; `plaintext` keeps the
+            characters themselves in reading order. */}
+        <span
+          className="whitespace-nowrap"
+          style={{ direction: 'rtl', unicodeBidi: 'plaintext' }}
+        >
+          {origin}/
+        </span>
       </span>
       <span className="relative flex min-w-0 flex-1 items-center">
         <input
           id={id}
           onChange={handleChange}
-          className="h-10 w-full min-w-0 bg-transparent px-3 pr-8 font-mono text-sm text-fg placeholder:text-sub/60 focus:outline-none"
+          className="h-9 w-full min-w-0 bg-transparent pr-8 pl-2 font-mono text-sm text-fg placeholder:text-sub/60 focus:outline-none"
           {...props}
         />
-        <span className="pointer-events-none absolute right-2.5 flex items-center">
+        <span className="pointer-events-none absolute right-2 flex items-center">
           <StatusIcon availability={availability} />
         </span>
       </span>

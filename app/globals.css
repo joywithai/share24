@@ -68,8 +68,9 @@ body {
   border-radius: 2px;
 }
 
-/* A little breathing room so a highlight at column 1 keeps its left edge
-   visible instead of butting against the line-number gutter. */
-.monaco-editor .view-lines {
-  padding-left: 6px;
-}
+/* NOTE: the 6px of breathing room between the line-number gutter and the text
+   is set through Monaco's own `lineDecorationsWidth` option (see
+   components/editor/CodeEditor.tsx), NOT with padding here.
+   Shifting `.view-lines` with CSS moves the *text* but not Monaco's internal
+   layout math, so the caret and the find-highlights are then drawn ~6px (≈ one
+   character) to the left of the character they belong to. */

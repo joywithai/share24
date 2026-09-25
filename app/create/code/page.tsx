@@ -4,13 +4,14 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 
 import {
   createCodeShare,
   routeStatus,
   type ShareResult,
 } from '@/app/actions/share';
+import { PinInput } from '@/components/share/PinInput';
 import {
   type RouteAvailability,
   RouteField,
@@ -23,7 +24,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { normalizeRoute } from '@/lib/route';
 import { type CodeShareInput, codeShareSchema } from '@/lib/schemas';
@@ -51,6 +51,7 @@ export default function CreateCodePage() {
   const [pending, setPending] = useState(false);
 
   const {
+    control,
     register,
     handleSubmit,
     watch,
@@ -135,19 +136,26 @@ export default function CreateCodePage() {
               <Label htmlFor="pin">
                 PIN <span className="font-normal text-sub/60">(optional)</span>
               </Label>
-              <Input
-                id="pin"
-                inputMode="numeric"
-                maxLength={4}
-                placeholder="4 digits"
-                {...register('pin')}
+              <Controller
+                control={control}
+                name="pin"
+                render={({ field }) => (
+                  <PinInput
+                    id="pin"
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    invalid={Boolean(errors.pin)}
+                    describedBy={errors.pin ? 'pin-error' : 'pin-hint'}
+                  />
+                )}
               />
               {errors.pin ? (
-                <p role="alert" className="text-xs text-danger">
+                <p id="pin-error" role="alert" className="text-xs text-danger">
                   {errors.pin.message}
                 </p>
               ) : (
-                <p className="text-xs text-sub/70">
+                <p id="pin-hint" className="text-xs text-sub/70">
                   Viewers must enter this PIN to open the share.
                 </p>
               )}
