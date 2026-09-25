@@ -5,6 +5,7 @@ import { type FormEvent, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { normalizeRoute, routeProblem } from '@/lib/route';
+import { compactHost } from '@/lib/utils';
 
 /**
  * Accepts either a bare slug (`any-name`) or a pasted share link
@@ -54,9 +55,9 @@ export function RouteGoBox() {
       <div className="flex w-full min-w-0 items-center gap-1 rounded-xl border border-line bg-card p-1 font-mono text-xs shadow-sm transition-colors focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/30 sm:text-sm">
         <span
           aria-hidden
-          className="flex h-9 shrink-0 items-center rounded-lg bg-card-soft px-3 text-sub"
+          className="flex h-9 max-w-[40%] shrink-0 items-center overflow-hidden rounded-lg bg-card-soft px-3 text-[11px] text-sub"
         >
-          {origin}/
+          <span className="whitespace-nowrap">{compactHost(origin)}/</span>
         </span>
         <label className="sr-only" htmlFor="go-route">
           Share name

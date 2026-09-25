@@ -131,7 +131,7 @@ export default function CreateFilePage() {
         </Card>
 
         <Card>
-          <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
+          <CardContent className="grid gap-5 p-5 sm:grid-cols-[minmax(0,1fr)_auto]">
             <div className="min-w-0 space-y-2">
               <Label htmlFor="route">Route</Label>
               <RouteField
@@ -151,7 +151,7 @@ export default function CreateFilePage() {
                 </p>
               )}
             </div>
-            <div className="min-w-0 space-y-2">
+            <div className="min-w-0 space-y-2 sm:w-52">
               <Label htmlFor="pin">
                 PIN <span className="font-normal text-sub/60">(optional)</span>
               </Label>

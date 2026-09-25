@@ -7,6 +7,8 @@ import {
   useState,
 } from 'react';
 
+import { compactHost } from '@/lib/utils';
+
 export type RouteAvailability = 'idle' | 'checking' | 'free' | 'taken';
 
 interface RouteFieldProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -91,15 +93,17 @@ export function RouteField({
       <span
         aria-hidden
         title={`${origin}/`}
-        className="flex h-9 max-w-[45%] shrink-0 items-center overflow-hidden rounded-lg bg-card-soft px-2.5 font-mono text-xs text-sub"
+        className="flex h-9 max-w-[40%] shrink-0 items-center overflow-hidden rounded-lg bg-card-soft px-2.5 font-mono text-[11px] text-sub"
       >
-        {/* `direction: rtl` puts the ellipsis on the left; `plaintext` keeps the
-            characters themselves in reading order. */}
+        {/* A long host is shortened to its tail (`…arena.site`), so the room
+            goes to the name the visitor is actually choosing. If even that
+            overflows, the ellipsis lands on the left (rtl) rather than slicing
+            a word in half. */}
         <span
           className="whitespace-nowrap"
           style={{ direction: 'rtl', unicodeBidi: 'plaintext' }}
         >
-          {origin}/
+          {compactHost(origin)}/
         </span>
       </span>
       <span className="relative flex min-w-0 flex-1 items-center">

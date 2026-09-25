@@ -146,7 +146,7 @@ export function PinInput({
   }
 
   return (
-    <fieldset className="flex min-w-0 items-center gap-2">
+    <fieldset className="flex min-w-0 items-center gap-1.5">
       <legend className="sr-only">{`${LENGTH}-digit PIN`}</legend>
       {name ? <input type="hidden" name={name} value={value} /> : null}
       {digits.map((digit, index) => (
@@ -174,7 +174,7 @@ export function PinInput({
           onFocus={() => handleFocus(index)}
           onBlur={onBlur}
           className={cn(
-            'h-11 w-10 rounded-lg border bg-bg text-center font-mono text-lg text-fg shadow-sm outline-none transition-colors',
+            'h-10 w-9 rounded-lg border bg-bg text-center font-mono text-base text-fg shadow-sm outline-none transition-colors',
             'focus:border-accent focus:ring-2 focus:ring-accent/30',
             invalid ? 'border-danger' : 'border-line',
             // A gentle nudge towards the box being filled.
