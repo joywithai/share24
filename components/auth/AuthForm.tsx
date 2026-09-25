@@ -1,7 +1,6 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -16,6 +15,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { hardNavigate } from '@/lib/navigate';
 import { cn } from '@/lib/utils';
 
 /** One schema for both modes — `name` is only required for sign-up (checked
@@ -39,7 +39,6 @@ interface AuthFormProps {
  * Account table, sessions in the Session table).
  */
 export function AuthForm({ redirectTarget }: AuthFormProps) {
-  const router = useRouter();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -101,8 +100,11 @@ export function AuthForm({ redirectTarget }: AuthFormProps) {
         return;
       }
 
-      router.push(redirectTarget);
-      router.refresh();
+      // A full navigation, not `router.push`: the visitor usually arrived here
+      // *from* the target page's "not signed in" redirect, and a soft
+      // navigation can re-use that stale render — so signing in looked like it
+      // did nothing. This makes the browser send the cookie that was just set.
+      hardNavigate(redirectTarget);
     } catch {
       setFormError('Could not reach the server — please try again.');
     } finally {

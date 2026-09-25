@@ -1,6 +1,27 @@
 @import "tailwindcss";
 
 /*
+ * Buttons get a pointer cursor.
+ *
+ * Browsers default <button> to `cursor: default`, and Tailwind v4's preflight
+ * no longer overrides that — so every button in the app looked inert on hover.
+ * A base-layer rule covers the shared <Button> and the plain <button>s alike
+ * (mode tabs, dropzone, back buttons) without touching each one.
+ */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* Disabled controls say so instead of looking clickable. */
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
+/*
  * Sharetofnd design tokens (Tailwind v4 CSS-first configuration).
  *
  *   Background #0B0D0F · Card #12161B · Border #1E242D
