@@ -8,7 +8,7 @@
  * therefore only pulled in on the pages that need it.
  */
 import * as monaco from 'monaco-editor';
-import { type MutableRefObject, useEffect, useRef } from 'react';
+import { type MutableRefObject, useCallback, useEffect, useRef } from 'react';
 
 /**
  * Bundle Monaco's web workers with the app (no CDN — the app must work fully
@@ -212,13 +212,18 @@ export function CodeEditor({
   // cursor sits over the editor, which feels broken. Wheel handling is turned
   // back on as soon as the content actually overflows the viewport.
   const wheelEnabledRef = useRef(true);
-  function syncWheel(editor: monaco.editor.IStandaloneCodeEditor) {
-    const fits = editor.getScrollHeight() <= editor.getLayoutInfo().height;
-    const wanted = !fits;
-    if (wheelEnabledRef.current === wanted) return;
-    wheelEnabledRef.current = wanted;
-    editor.updateOptions({ scrollbar: { handleMouseWheel: wanted } });
-  }
+  // Stable across renders, so it is safe to depend on in the effect below
+  // (a changing dependency would tear down and rebuild the editor).
+  const syncWheel = useCallback(
+    (editor: monaco.editor.IStandaloneCodeEditor) => {
+      const fits = editor.getScrollHeight() <= editor.getLayoutInfo().height;
+      const wanted = !fits;
+      if (wheelEnabledRef.current === wanted) return;
+      wheelEnabledRef.current = wanted;
+      editor.updateOptions({ scrollbar: { handleMouseWheel: wanted } });
+    },
+    [],
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -264,7 +269,7 @@ export function CodeEditor({
     };
     // The editor is created once per language/read-only mode; content changes
     // flow through the sync effect below.
-  }, [language, readOnly]);
+  }, [language, readOnly, syncWheel]);
 
   // Keep the model in sync when the controlled value changes from outside
   // (e.g. form reset). Skipped when the values already match, so typing does

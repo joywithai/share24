@@ -20,7 +20,7 @@ interface RouteFieldProps extends InputHTMLAttributes<HTMLInputElement> {
 function StatusIcon({ availability }: { availability: RouteAvailability }) {
   if (availability === 'checking') {
     return (
-      <span
+      <output
         aria-label="Checking route…"
         className="h-4 w-4 animate-spin rounded-full border-2 border-sub/40 border-t-accent"
       />
