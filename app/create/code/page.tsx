@@ -3,11 +3,18 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 
-import { createCodeShare, type ShareResult } from '@/app/actions/share';
-import { RouteField } from '@/components/share/RouteField';
+import {
+  createCodeShare,
+  routeStatus,
+  type ShareResult,
+} from '@/app/actions/share';
+import {
+  type RouteAvailability,
+  RouteField,
+} from '@/components/share/RouteField';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -56,6 +63,26 @@ export default function CreateCodePage() {
 
   const code = watch('code');
 
+  const [availability, setAvailability] = useState<RouteAvailability>('idle');
+  const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Debounced live check: ✓ free / ✕ taken while the user types the slug. */
+  function handleRouteChange(value: string) {
+    if (checkTimer.current) clearTimeout(checkTimer.current);
+    if (!value.trim()) {
+      setAvailability('idle');
+      return;
+    }
+    setAvailability('checking');
+    checkTimer.current = setTimeout(() => {
+      routeStatus(value)
+        .then((result) => {
+          setAvailability(result.state === 'invalid' ? 'idle' : result.state);
+        })
+        .catch(() => setAvailability('idle'));
+    }, 250);
+  }
+
   const onSubmit = handleSubmit(async (values) => {
     setPending(true);
     setSubmitError(null);
@@ -84,35 +111,14 @@ export default function CreateCodePage() {
 
       <form onSubmit={onSubmit} className="space-y-5">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Code</CardTitle>
-            <CardDescription>
-              Plain text in V1 — no language detection yet.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CodeEditor
-              value={code}
-              onChange={(next) =>
-                setValue('code', next, { shouldValidate: true })
-              }
-              ariaLabel="Code to share"
-            />
-            {errors.code && (
-              <p role="alert" className="mt-2 text-sm text-danger">
-                {errors.code.message}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
           <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
             <div className="min-w-0 space-y-2">
               <Label htmlFor="route">Route</Label>
               <RouteField
                 id="route"
                 placeholder="my-snippet"
+                availability={availability}
+                onValueChange={handleRouteChange}
                 {...register('route')}
               />
               {errors.route ? (
@@ -146,6 +152,29 @@ export default function CreateCodePage() {
                 </p>
               )}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Code</CardTitle>
+            <CardDescription>
+              Plain text in V1 — no language detection yet.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CodeEditor
+              value={code}
+              onChange={(next) =>
+                setValue('code', next, { shouldValidate: true })
+              }
+              ariaLabel="Code to share"
+            />
+            {errors.code && (
+              <p role="alert" className="mt-2 text-sm text-danger">
+                {errors.code.message}
+              </p>
+            )}
           </CardContent>
         </Card>
 

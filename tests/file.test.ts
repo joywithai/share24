@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  ALLOWED_EXTENSIONS,
+  BLOCKED_EXTENSIONS,
   extensionOf,
   fileProblem,
   formatBytes,
+  KNOWN_MIME_TYPES,
   MAX_FILE_BYTES,
   mimeTypeFor,
 } from '@/lib/file';
@@ -30,62 +31,69 @@ describe('extensionOf', () => {
 describe('fileProblem', () => {
   const ok = { name: 'notes.txt', type: 'text/plain', size: 100 };
 
-  it('accepts every allowed type', () => {
-    for (const ext of Object.keys(ALLOWED_EXTENSIONS)) {
-      const file = {
-        name: `f.${ext}`,
-        type: ALLOWED_EXTENSIONS[ext],
-        size: 10,
-      };
+  it('accepts ordinary developer files of any extension', () => {
+    const friendly = [
+      { name: 'notes.txt', type: 'text/plain' },
+      { name: 'app.js', type: 'text/javascript' },
+      { name: 'style.css', type: 'text/css' },
+      { name: 'main.cpp', type: 'text/x-c++src' },
+      { name: 'data.json', type: 'application/json' },
+      { name: 'readme.md', type: 'text/markdown' },
+      { name: 'photo.png', type: 'image/png' },
+      { name: 'scan.pdf', type: 'application/pdf' },
+      { name: 'Makefile', type: '' }, // no extension at all
+      { name: 'weird.qzx', type: '' }, // unknown extension
+    ];
+    for (const file of friendly) {
+      expect(fileProblem({ ...file, size: 10 }), file.name).toBeNull();
+    }
+  });
+
+  it('accepts the documented document/image types', () => {
+    for (const ext of Object.keys(KNOWN_MIME_TYPES)) {
+      const file = { name: `f.${ext}`, type: KNOWN_MIME_TYPES[ext], size: 10 };
       expect(fileProblem(file), ext).toBeNull();
     }
   });
 
-  it('accepts generic browser MIME types for known extensions', () => {
-    expect(
-      fileProblem({
-        name: 'f.docx',
-        type: 'application/octet-stream',
-        size: 10,
-      }),
-    ).toBeNull();
-    expect(fileProblem({ name: 'f.pdf', type: '', size: 10 })).toBeNull();
+  it('rejects blocked extensions (archives, executables, web, media)', () => {
+    for (const name of [
+      'evil.zip',
+      'bundle.rar',
+      'image.iso',
+      'malware.exe',
+      'lib.dll',
+      'page.html',
+      'icon.svg',
+      'movie.mp4',
+      'clip.webm',
+      'song.mp3',
+    ]) {
+      expect(fileProblem({ name, type: '', size: 10 }), name).toMatch(
+        /can't be shared/,
+      );
+    }
+    // …and the whole block-list stays consistent with the message.
+    expect(BLOCKED_EXTENSIONS.size).toBeGreaterThan(30);
   });
 
-  it('rejects disallowed types', () => {
+  it('rejects blocked MIME types even behind an innocent name', () => {
     expect(
-      fileProblem({ name: 'evil.zip', type: 'application/zip', size: 10 }),
-    ).toMatch(/Only PNG/);
+      fileProblem({ name: 'f.weird', type: 'video/mp4', size: 10 }),
+    ).toMatch(/can't be shared/);
     expect(
-      fileProblem({
-        name: 'evil.exe',
-        type: 'application/x-msdownload',
-        size: 10,
-      }),
-    ).toMatch(/Only PNG/);
+      fileProblem({ name: 'f.weird', type: 'audio/mpeg', size: 10 }),
+    ).toMatch(/can't be shared/);
     expect(
-      fileProblem({
-        name: 'big.iso',
-        type: 'application/x-iso9660-image',
-        size: 10,
-      }),
-    ).toMatch(/Only PNG/);
-    expect(
-      fileProblem({ name: 'clip.html', type: 'text/html', size: 10 }),
-    ).toMatch(/Only PNG/);
-  });
-
-  it('rejects MIME/extension mismatch', () => {
-    expect(
-      fileProblem({ name: 'sneaky.png', type: 'application/pdf', size: 10 }),
-    ).toMatch(/does not match/);
+      fileProblem({ name: 'f.weird', type: 'application/zip', size: 10 }),
+    ).toMatch(/can't be shared/);
   });
 
   it('rejects oversized files (10 MB cap)', () => {
     expect(
       fileProblem({
-        name: 'big.png',
-        type: 'image/png',
+        name: 'big.txt',
+        type: 'text/plain',
         size: MAX_FILE_BYTES + 1,
       }),
     ).toMatch(/10 MB/);

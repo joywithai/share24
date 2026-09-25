@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
+import { BackButton } from '@/components/layout/BackButton';
 import { Brand } from '@/components/layout/Brand';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 
@@ -31,7 +32,10 @@ export default function RootLayout({
       <body className="min-h-screen bg-bg font-sans text-fg antialiased">
         <div className="mx-auto flex min-h-screen w-full max-w-[1000px] flex-col px-5">
           <SiteHeader />
-          <main className="flex-1 py-10">{children}</main>
+          <main className="flex-1 py-10">
+            <BackButton />
+            {children}
+          </main>
           <footer className="flex flex-wrap items-center gap-x-1.5 pb-8 pt-4 text-xs text-sub">
             <Brand size="text-xs" tag={false} />
             <span>— anything shared here is gone in 24 hours.</span>

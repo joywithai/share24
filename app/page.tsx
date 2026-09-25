@@ -42,7 +42,7 @@ const actions = [
   {
     href: '/create/file',
     title: 'Share a file',
-    description: 'PNG, JPG, WEBP, PDF, TXT, DOC, DOCX · 10 MB.',
+    description: 'Any file except archives, executables & media · 10 MB.',
     icon: (
       <svg
         aria-hidden

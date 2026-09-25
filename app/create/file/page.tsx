@@ -2,12 +2,19 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 
-import { createFileShare, type ShareResult } from '@/app/actions/share';
+import {
+  createFileShare,
+  routeStatus,
+  type ShareResult,
+} from '@/app/actions/share';
 import { FileDrop } from '@/components/file/FileDrop';
-import { RouteField } from '@/components/share/RouteField';
+import {
+  type RouteAvailability,
+  RouteField,
+} from '@/components/share/RouteField';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -33,6 +40,26 @@ export default function CreateFilePage() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  const [availability, setAvailability] = useState<RouteAvailability>('idle');
+  const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Debounced live check: ✓ free / ✕ taken while the user types the slug. */
+  function handleRouteChange(value: string) {
+    if (checkTimer.current) clearTimeout(checkTimer.current);
+    if (!value.trim()) {
+      setAvailability('idle');
+      return;
+    }
+    setAvailability('checking');
+    checkTimer.current = setTimeout(() => {
+      routeStatus(value)
+        .then((result) => {
+          setAvailability(result.state === 'invalid' ? 'idle' : result.state);
+        })
+        .catch(() => setAvailability('idle'));
+    }, 250);
+  }
 
   const {
     register,
@@ -93,7 +120,8 @@ export default function CreateFilePage() {
           <CardHeader>
             <CardTitle className="text-sm">File</CardTitle>
             <CardDescription>
-              PNG, JPG, WEBP, PDF, TXT, DOC, DOCX — up to 10 MB.
+              Any single file up to 10 MB — archives, executables, web pages and
+              video/audio are blocked.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -108,6 +136,8 @@ export default function CreateFilePage() {
               <RouteField
                 id="route"
                 placeholder="my-file"
+                availability={availability}
+                onValueChange={handleRouteChange}
                 {...register('route')}
               />
               {errors.route ? (

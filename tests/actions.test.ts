@@ -175,7 +175,7 @@ describe('createFileShare', () => {
     const file = new File(['bad'], 'malware.zip', { type: 'application/zip' });
     const result = await createFileShare(makeForm(file, 'file-zip'));
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/Only PNG/);
+    expect(result.error).toMatch(/can't be shared/);
     expect(shareCreate).not.toHaveBeenCalled();
     expect(new Set(readdirSync(UPLOADS_ROOT))).toEqual(before);
   });

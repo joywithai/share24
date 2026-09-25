@@ -32,6 +32,12 @@ export interface PinFormState {
   expired?: boolean;
 }
 
+/** Live "is this slug still free?" answer for the route input. */
+export interface RouteStatus {
+  state: 'invalid' | 'free' | 'taken';
+  message: string | null;
+}
+
 const ROUTE_TAKEN_ERROR =
   'That route is already in use by an active share. Pick another one, or wait for the current share to expire (24h max).';
 
@@ -56,6 +62,26 @@ async function setUnlockCookieForRoute(route: string, expiresAt: Date) {
     path: '/',
     expires: new Date(validUntil),
   });
+}
+
+/**
+ * Cheap availability probe for the create forms: called (debounced) on every
+ * keystroke so the route input can show ✓ / ✕ before the user submits. The
+ * authoritative check still happens inside the create transactions below.
+ */
+export async function routeStatus(input: unknown): Promise<RouteStatus> {
+  const route = normalizeRoute(String(input ?? ''));
+  const problem = routeProblem(route);
+  if (problem) return { state: 'invalid', message: problem };
+
+  const now = new Date();
+  const taken = await prisma.share.findFirst({
+    where: { route, isExpired: false, expiresAt: { gt: now } },
+    select: { id: true },
+  });
+  return taken
+    ? { state: 'taken', message: ROUTE_TAKEN_ERROR }
+    : { state: 'free', message: null };
 }
 
 /**

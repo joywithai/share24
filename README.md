@@ -13,7 +13,8 @@ something to share → no signup, no forms → paste it + pick a route → link
 ## V1 features
 
 - **Code sharing** — Monaco editor (bundled, no CDN), plain text, 200 KB cap
-- **File sharing** — drag & drop; PNG, JPG, WEBP, PDF, TXT, DOC, DOCX; 10 MB cap
+- **File sharing** — drag & drop; any single file up to 10 MB except archives,
+  executables, active web content and video/audio (block-list, not allow-list)
 - **Custom routes** — `/{a-z0-9_-}` 3–50 chars; reserved words blocked; a route
   is free again as soon as the previous share expires
 - **Optional 4-digit PIN** — bcrypt-hashed; unlocking mints a short-lived,
@@ -173,7 +174,7 @@ stored paths against the uploads root (traversal-safe).
   ≤ 1 h, httpOnly, SameSite=Lax
 - Server-side re-validation of everything (schemas, file type/size, routes)
 - Files: extension allow-list + declared-MIME cross-check (deep magic-byte
-  validation is a V2 item), 10 MB cap
+  block-list rejects archives/executables/web pages/media), 10 MB cap
 - Code is rendered in a read-only Monaco instance (never `dangerouslySetInnerHTML`)
 - SQL through Prisma only (parameterized); no raw SQL except dev scripts
 - V1 has **no rate limiting** on PIN attempts (documented gap, V2)

@@ -117,7 +117,7 @@ export function FileDrop({ file, onFile, error }: FileDropProps) {
         Drop a file here, or click to browse
       </p>
       <p className="mt-1 text-xs text-sub">
-        PNG, JPG, WEBP, PDF, TXT, DOC, DOCX · max 10 MB
+        Any single file · max 10 MB · no archives, executables or media
       </p>
       <input
         ref={inputRef}

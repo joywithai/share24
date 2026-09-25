@@ -1,24 +1,120 @@
 /**
- * File upload rules (V1): a small allow-list of document/image types and a
- * 10 MB size cap (close to serverless request limits).
+ * File upload rules (V1.1): any *single* file up to 10 MB, except the kinds
+ * that can hurt the site or bloat it — archives, executables, active web
+ * content and media containers. Text-ish developer files (js, css, c++, md,
+ * json, …) are welcome.
  */
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
-/** Extension (lowercase, no dot) → canonical MIME type. */
-export const ALLOWED_EXTENSIONS: Record<string, string> = {
+/** Well-known extension → canonical MIME type (storage hint only). */
+export const KNOWN_MIME_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
   webp: 'image/webp',
+  gif: 'image/gif',
   pdf: 'application/pdf',
   txt: 'text/plain',
+  md: 'text/markdown',
+  csv: 'text/csv',
+  json: 'application/json',
   doc: 'application/msword',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 
-/** MIME types browsers report when they cannot guess the type — accepted. */
-const GENERIC_MIME_TYPES = new Set(['', 'application/octet-stream']);
+/** Backwards-friendly alias for the document/image map above. */
+export const ALLOWED_EXTENSIONS = KNOWN_MIME_TYPES;
+
+/** Extensions that are never shareable. */
+export const BLOCKED_EXTENSIONS = new Set([
+  // archives & disk images
+  'zip',
+  'rar',
+  '7z',
+  'tar',
+  'gz',
+  'bz2',
+  'xz',
+  'zst',
+  'iso',
+  'img',
+  'dmg',
+  // executables, libraries, installers, scripts-that-run
+  'exe',
+  'dll',
+  'so',
+  'dylib',
+  'bin',
+  'bat',
+  'cmd',
+  'com',
+  'msi',
+  'apk',
+  'deb',
+  'rpm',
+  'jar',
+  'class',
+  'ps1',
+  'psm1',
+  'vbs',
+  'scr',
+  'cpl',
+  // active web content (XSS vector if ever served back)
+  'html',
+  'htm',
+  'xhtml',
+  'shtml',
+  'mhtml',
+  'mht',
+  'svg',
+  'swf',
+  // video & audio containers
+  'mp4',
+  'mkv',
+  'avi',
+  'mov',
+  'wmv',
+  'flv',
+  'webm',
+  'm4v',
+  'mpg',
+  'mpeg',
+  '3gp',
+  'mp3',
+  'wav',
+  'flac',
+  'aac',
+  'ogg',
+  'm4a',
+  'wma',
+  'opus',
+]);
+
+/** MIME prefixes that are never shareable (catches odd extensions). */
+const BLOCKED_MIME_PREFIXES = ['video/', 'audio/'];
+
+/** Exact MIME types that are never shareable. */
+const BLOCKED_MIME_TYPES = new Set([
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-rar-compressed',
+  'application/x-7z-compressed',
+  'application/x-tar',
+  'application/gzip',
+  'application/x-bzip2',
+  'application/x-xz',
+  'application/x-iso9660-image',
+  'application/vnd.microsoft.portable-executable',
+  'application/x-msdownload',
+  'application/x-dosexec',
+  'application/x-shockwave-flash',
+  'application/java-archive',
+  'application/x-apple-diskimage',
+]);
+
+export const BLOCKED_FILE_MESSAGE =
+  "That file type can't be shared — archives, executables, web pages and video/audio are blocked.";
 
 /** Lowercase extension without the dot, or `null`. */
 export function extensionOf(name: string): string | null {
@@ -40,22 +136,21 @@ export function fileProblem(file: {
   size: number;
 }): string | null {
   const ext = extensionOf(file.name);
-  if (!ext || !(ext in ALLOWED_EXTENSIONS)) {
-    return 'Only PNG, JPG, WEBP, PDF, TXT, DOC and DOCX files are allowed.';
+  if (ext && BLOCKED_EXTENSIONS.has(ext)) return BLOCKED_FILE_MESSAGE;
+
+  const mime = (file.type || '').toLowerCase();
+  if (
+    BLOCKED_MIME_TYPES.has(mime) ||
+    BLOCKED_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix))
+  ) {
+    return BLOCKED_FILE_MESSAGE;
   }
+
   if (file.size === 0) {
     return 'That file is empty.';
   }
   if (file.size > MAX_FILE_BYTES) {
     return `Files must be ${MAX_FILE_BYTES / (1024 * 1024)} MB or smaller.`;
-  }
-  const expected = ALLOWED_EXTENSIONS[ext];
-  if (
-    file.type &&
-    !GENERIC_MIME_TYPES.has(file.type) &&
-    file.type !== expected
-  ) {
-    return 'The file type does not match its extension.';
   }
   return null;
 }
@@ -63,7 +158,7 @@ export function fileProblem(file: {
 /** Best-known MIME type for storage (extension wins, browser value is a fallback). */
 export function mimeTypeFor(name: string, declared: string): string {
   const ext = extensionOf(name);
-  if (ext && ext in ALLOWED_EXTENSIONS) return ALLOWED_EXTENSIONS[ext];
+  if (ext && ext in KNOWN_MIME_TYPES) return KNOWN_MIME_TYPES[ext];
   return declared || 'application/octet-stream';
 }
 

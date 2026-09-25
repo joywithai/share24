@@ -16,10 +16,15 @@ const allowedOrigins = (process.env.CORIUM_ALLOWED_ORIGINS ?? '')
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
-  ...(allowedOrigins.length > 0
-    ? // Next.js 15 still nests this under `experimental`.
-      { experimental: { serverActions: { allowedOrigins } } }
-    : {}),
+  experimental: {
+    serverActions: {
+      // File shares travel through a Server Action (multipart). The 1 MB
+      // default rejects anything bigger long before our own 10 MB rule gets
+      // a say — raise it just past the product limit.
+      bodySizeLimit: '12mb',
+      ...(allowedOrigins.length > 0 ? { allowedOrigins } : {}),
+    },
+  },
 };
 
 export default nextConfig;

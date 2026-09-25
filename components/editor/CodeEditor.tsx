@@ -207,6 +207,19 @@ export function CodeEditor({
     };
   });
 
+  // When the content fits the box (e.g. an empty editor) Monaco must not eat
+  // the mouse wheel — otherwise the *page* becomes unscrollable while the
+  // cursor sits over the editor, which feels broken. Wheel handling is turned
+  // back on as soon as the content actually overflows the viewport.
+  const wheelEnabledRef = useRef(true);
+  function syncWheel(editor: monaco.editor.IStandaloneCodeEditor) {
+    const fits = editor.getScrollHeight() <= editor.getLayoutInfo().height;
+    const wanted = !fits;
+    if (wheelEnabledRef.current === wanted) return;
+    wheelEnabledRef.current = wanted;
+    editor.updateOptions({ scrollbar: { handleMouseWheel: wanted } });
+  }
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -232,13 +245,19 @@ export function CodeEditor({
       contextmenu: !readOnly,
     });
     editorRef.current = editor;
+    syncWheel(editor);
 
     const subscription = editor.onDidChangeModelContent(() => {
       onChangeRef.current?.(editor.getValue());
+      syncWheel(editor);
+    });
+    const layoutSubscription = editor.onDidLayoutChange(() => {
+      syncWheel(editor);
     });
 
     return () => {
       subscription.dispose();
+      layoutSubscription.dispose();
       decorationsRef.current = null;
       editor.dispose();
       editorRef.current = null;
