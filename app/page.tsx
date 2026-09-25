@@ -81,39 +81,60 @@ export default function HomePage() {
           somebody shared with you and Go straight to it. */}
       <RouteGoBox />
 
-      <ol className="mt-10 grid w-full max-w-2xl gap-3 text-left sm:grid-cols-3">
+      {/* The three steps as a flow, not as three boxes: a numbered node with
+          a hairline running out of it, then plain type underneath. */}
+      <ol className="mt-12 grid w-full max-w-2xl gap-x-6 gap-y-7 text-left sm:grid-cols-3">
         {steps.map((step, i) => (
-          <li
-            key={step.title}
-            className="min-w-0 rounded-lg border border-line bg-card p-4"
-          >
-            <span className="font-mono text-xs text-brand-2">
-              {String(i + 1).padStart(2, '0')}
-            </span>
-            <p className="mt-1 text-sm font-semibold">{step.title}</p>
-            <p className="mt-1 text-xs leading-relaxed text-sub break-words">
+          <li key={step.title} className="group min-w-0">
+            <div className="flex items-center gap-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent/25 bg-accent/10 font-mono text-[10px] text-accent tabular-nums transition-colors group-hover:border-accent/50 group-hover:bg-accent/15">
+                {String(i + 1).padStart(2, '0')}
+              </span>
+              <span
+                aria-hidden
+                className="h-px flex-1 bg-gradient-to-r from-line via-line/70 to-transparent"
+              />
+            </div>
+            <p className="mt-3 text-sm font-semibold">{step.title}</p>
+            <p className="mt-1 text-xs leading-relaxed break-words text-sub">
               {step.text}
             </p>
           </li>
         ))}
       </ol>
 
-      <div className="mt-6 grid w-full max-w-2xl gap-4 sm:grid-cols-2">
+      <div className="mt-8 grid w-full max-w-2xl gap-3 sm:grid-cols-2 sm:gap-4">
         {actions.map((action) => (
           <Link
             key={action.href}
             href={action.href}
-            className="flex min-w-0 items-center gap-3 rounded-xl border border-line bg-card-soft px-5 py-4 text-left transition-colors hover:border-accent/50 hover:bg-card"
+            className="group flex min-w-0 items-center gap-4 rounded-xl border border-line bg-card p-4 text-left transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:bg-card-soft hover:shadow-lg hover:shadow-black/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
           >
-            <span className="text-accent">{action.icon}</span>
-            <span className="min-w-0">
-              <span className="block text-base font-semibold">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent ring-1 ring-accent/20 transition-colors group-hover:bg-accent/15">
+              {action.icon}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">
                 {action.title}
               </span>
-              <span className="block text-xs leading-relaxed text-sub break-words">
+              <span className="mt-0.5 block text-xs leading-relaxed break-words text-sub">
                 {action.description}
               </span>
             </span>
+            <svg
+              aria-hidden
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4 shrink-0 text-sub transition-transform group-hover:translate-x-0.5 group-hover:text-accent"
+            >
+              <path
+                d="m9 6 6 6-6 6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </Link>
         ))}
       </div>
