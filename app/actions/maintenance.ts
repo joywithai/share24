@@ -27,7 +27,8 @@ export async function runCleanupAction(): Promise<MaintenanceResult> {
     action: 'cleanup.run',
     detail:
       `${report.sharesDeleted} shares, ${report.filesDeleted} files, ` +
-      `${report.strayFilesDeleted} stray files, ${report.blocksDeleted} blocks`,
+      `${report.strayFilesDeleted} stray files, ${report.emptyFoldersDeleted} empty folders, ` +
+      `${report.blocksDeleted} blocks`,
   });
 
   revalidatePath('/admin');
@@ -45,7 +46,8 @@ export async function runCleanupAction(): Promise<MaintenanceResult> {
     ok: true,
     message:
       `Removed ${report.sharesDeleted} share(s), ${report.filesDeleted} file(s), ` +
-      `${report.strayFilesDeleted} stray file(s) and ${report.blocksDeleted} expired block(s) in ${report.durationMs} ms.`,
+      `${report.strayFilesDeleted} stray file(s), ${report.emptyFoldersDeleted} empty folder(s) ` +
+      `and ${report.blocksDeleted} expired block(s) in ${report.durationMs} ms.`,
   };
 }
 

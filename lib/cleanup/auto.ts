@@ -40,6 +40,7 @@ export interface CleanupReport {
   orphanRowsDeleted: number;
   strayFilesDeleted: number;
   strayBytesDeleted: number;
+  emptyFoldersDeleted: number;
   blocksDeleted: number;
   eventsDeleted: number;
   errors: string[];
@@ -68,6 +69,7 @@ export async function runCleanup(
     orphanRowsDeleted: 0,
     strayFilesDeleted: 0,
     strayBytesDeleted: 0,
+    emptyFoldersDeleted: 0,
     blocksDeleted: 0,
     eventsDeleted: 0,
     errors: [],
@@ -201,6 +203,29 @@ export async function runCleanup(
     }
   });
 
+  await step(report, 'empty folders', async () => {
+    // A share folder whose files are all gone (deleted by an admin, or a stray
+    // file that was just cleaned) is now an empty directory nothing owns.
+    const dirs = await readdir(uploadsRoot()).catch(() => [] as string[]);
+    const claimed = new Set(
+      (
+        await prisma.shareFile.findMany({
+          select: { storedPath: true },
+          take: 20_000,
+        })
+      ).map((row) => row.storedPath.split('/')[0]),
+    );
+
+    for (const directory of dirs) {
+      if (!isSafeShareId(directory) || claimed.has(directory)) continue;
+      const absolute = path.join(uploadsRoot(), directory);
+      const entries = await readdir(absolute).catch(() => null);
+      if (!entries || entries.length > 0) continue;
+      await rm(absolute, { recursive: true, force: true }).catch(() => {});
+      report.emptyFoldersDeleted += 1;
+    }
+  });
+
   await step(report, 'expired blocks', async () => {
     report.blocksDeleted = await sweepExpiredBlocks();
   });
@@ -224,7 +249,8 @@ export async function runCleanup(
     severity: report.errors.length > 0 ? 'warning' : 'info',
     detail:
       `cleanup (${trigger}): ${report.sharesDeleted} shares, ${report.filesDeleted} files, ` +
-      `${report.strayFilesDeleted} stray files, ${report.blocksDeleted} blocks removed` +
+      `${report.strayFilesDeleted} stray files, ${report.emptyFoldersDeleted} empty folders, ` +
+      `${report.blocksDeleted} blocks removed` +
       (report.errors.length > 0 ? ` — ${report.errors.length} error(s)` : ''),
   });
 

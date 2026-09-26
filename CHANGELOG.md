@@ -8,6 +8,35 @@ not by which file moved.
 Base: `5a588f7` — *upload UX round* — bigger drop area, block-list upload rules
 (archives / executables / web pages / media), live route-availability check.
 
+## Phase 4 — Cleanup, maintenance mode, and a job that actually runs
+
+Expiry already stopped links from working; nothing ever removed anything. Now
+something does.
+
+- **`lib/cleanup/auto.ts`** is the whole job, and it is safe to run at any time,
+  as often as anybody likes: expired shares past the retention window (bytes
+  first, then rows), orphaned rows whose bytes are gone, unclaimed files on the
+  disk (with an age guard, so a share being uploaded right now is never a
+  candidate), empty share folders, expired IP blocks, and security events older
+  than 30 days. Every step is bounded and a failing step is recorded rather
+  than fatal; the run ends with a `maintenance` security event and a summary.
+- **`/api/cron/cleanup`** runs it: `Authorization: Bearer $CRON_SECRET` for the
+  scheduler (Vercel Cron does this automatically — see the new `vercel.json`,
+  hourly), or a signed-in administrator. With no `CRON_SECRET` set the bearer
+  path is refused outright instead of being left open.
+- **Maintenance mode is real.** `maintenance_mode` now blocks share creation
+  for visitors, answers downloads with a 503 that explains itself, and shows a
+  thin banner above the header. Administrators keep working throughout — which
+  is the only way to turn it off again.
+- The panel gained a **Run cleanup now** button and the storage page reports the
+  empty folders it removes.
+
+Verified live: a planted two-day-old share (rows + files + a stray file + an
+expired block) was removed by one authenticated cron call in 69 ms with an
+accurate report, while the live share kept serving; with maintenance on, a
+visitor's upload created nothing and a download answered 503 while the admin's
+download still returned 200 — and turning it off restored downloads.
+
 ## Phase 3 — The admin panel
 
 An operator can now see and steer the whole app from `/admin` — and nothing
@@ -36,8 +65,8 @@ about the visitor-facing flow changed.
 - **Charts without a chart library.** Server-rendered bars: fast, no client JS,
   nothing for the CSP to object to.
 
-Tests for the panel's guards, the settings coercion and the cleanup helpers grew
-the suite from 224 to 235.
+The panel's guards, the settings registry and the cleanup helpers have their own
+tests; the suite is at 251.
 
 ## Phase 2 — Security hardening
 

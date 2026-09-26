@@ -37,13 +37,12 @@ export function AdminForm({
     <form action={formAction} className={className}>
       {children}
       {state ? (
-        <span
-          role="status"
+        <output
           aria-live="polite"
           className={`text-xs ${state.ok ? 'text-ok' : 'text-danger'}`}
         >
           {state.ok ? state.message : state.error}
-        </span>
+        </output>
       ) : null}
     </form>
   );

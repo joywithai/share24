@@ -17,7 +17,8 @@ export type DownloadFailureKind =
   | 'not-part-of-share'
   | 'corrupt'
   | 'rate-limited'
-  | 'blocked';
+  | 'blocked'
+  | 'maintenance';
 
 const STATUS: Record<DownloadFailureKind, number> = {
   'share-gone': 410,
@@ -26,6 +27,7 @@ const STATUS: Record<DownloadFailureKind, number> = {
   'not-part-of-share': 404,
   'rate-limited': 429,
   blocked: 403,
+  maintenance: 503,
   corrupt: 500,
 };
 
@@ -55,6 +57,11 @@ function copyFor(
 ): FailureCopy {
   const slug = escapeHtml(`/${route}`);
   switch (kind) {
+    case 'maintenance':
+      return {
+        title: 'Downloads are paused for maintenance',
+        body: `The share <span style="font-family:var(--mono);color:#e5e7eb">${slug}</span> is still there — file downloads are switched off for a few minutes while the server is upgraded. Try again shortly.`,
+      };
     case 'blocked':
       return {
         title: 'This address is not allowed',

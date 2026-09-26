@@ -111,7 +111,7 @@ the schema with `npx prisma migrate deploy` (the migration SQL lives in
 | `npm run db:dev`      | Start embedded PostgreSQL + apply migrations (dev)        |
 | `npm run db:generate` | Generate the Prisma client (offline-safe wrapper)         |
 | `npm run db:seed`     | Demo user + sample shares (active code, active file, expired) |
-| `npm test`            | Vitest: unit + component + server-action tests (187)      |
+| `npm test`            | Vitest: unit + component + server-action tests (251)      |
 | `npm run e2e`         | Playwright: the 3 critical flows (needs `npx playwright install chromium`) |
 | `npm run lint`        | Biome check                                               |
 
@@ -128,6 +128,8 @@ the schema with `npx prisma migrate deploy` (the migration SQL lives in
 | `R2_ACCESS_KEY_ID`   | R2       | R2 API token (Object Read & Write on the bucket) |
 | `R2_SECRET_ACCESS_KEY` | R2     | The token's secret |
 | `R2_BUCKET_NAME`     | R2       | Bucket that holds the uploaded objects |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | no | Shared rate-limit counters (Upstash Redis). Unset = per-process |
+| `CRON_SECRET`        | prod     | Bearer token for `/api/cron/cleanup`. Unset = admins only |
 | `UNLOCK_SECRET`      | no       | Separate HMAC secret for PIN unlock cookies; falls back to `BETTER_AUTH_SECRET` |
 | `CORIUM_ALLOWED_ORIGINS` | no   | Comma-separated public origins allowed to post Server Actions when a reverse proxy rewrites `Host` (wildcards ok, e.g. `*.example.app`) |
 | `CORIUM_TRUSTED_ORIGINS` | no   | Comma-separated extra origins accepted by Better Auth's CSRF check |
@@ -221,6 +223,38 @@ page marks the ones that are gone ("Gone", no dead button, a panel when nothing
 is left), and every failure renders a small self-contained page with the reason
 and two ways out (`lib/download-error.ts`). The file *name* in a list is a
 download link as well as the buttons.
+
+## Admin panel (`/admin`)
+
+There is exactly one gated area outside the visitor flow. `User.role`
+(`user`/`admin`) and `User.status` (`active`/`suspended`) decide who gets in;
+the seed creates `admin@sharetofnd.dev / admin123` (change it, or delete the
+account after creating your own). The middleware only checks "is somebody signed
+in?"; the layout and every action check the role against the database, and a
+signed-in non-admin gets a 404.
+
+| Page       | What it is for |
+| ---------- | -------------- |
+| Dashboard  | Counts, 14-day charts, the latest shares, maintenance status |
+| Shares     | Filter/search, expire a link now, delete it (bytes included) |
+| Files      | Per-file "are the bytes still there?" check, storage filter, delete |
+| Users      | Promote/demote, suspend (closes their sessions) |
+| Security   | Event log with filters, block/unblock an address, active rate limits |
+| Storage    | Provider breakdown, R2 readiness, consistency scan, run cleanup |
+| Logs       | `AdminLog`: who changed what, plus cleanup runs |
+| Settings   | The registry in `lib/settings.ts` — maintenance mode, retention, cleanup switch |
+
+Every panel action writes an `AdminLog` row. Settings are only writable through
+the declared registry, so an unknown key can never enter the database.
+
+### Background cleanup
+
+`/api/cron/cleanup` (hourly via `vercel.json`) removes expired shares past the
+retention setting, orphaned rows, unclaimed files, empty folders, expired IP
+blocks and old security events. It is idempotent and bounded, and an
+administrator can trigger it from the Storage page. The same endpoint is how a
+cron service other than Vercel drives it: send the `CRON_SECRET` as a bearer
+token.
 
 ## Security notes
 

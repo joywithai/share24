@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 
 import { BackButton } from '@/components/layout/BackButton';
 import { Brand } from '@/components/layout/Brand';
+import { MaintenanceBanner } from '@/components/layout/MaintenanceBanner';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 
 import './globals.css';
@@ -32,6 +33,7 @@ export default function RootLayout({
       <body className="min-h-screen bg-bg font-sans text-fg antialiased">
         <div className="mx-auto flex min-h-screen w-full max-w-[1000px] flex-col px-5">
           <SiteHeader />
+          <MaintenanceBanner />
           <main className="flex-1 py-10">
             <BackButton />
             {children}

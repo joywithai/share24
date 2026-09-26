@@ -1,3 +1,4 @@
+import { currentAdmin } from '@/lib/admin';
 import { downloadFailure } from '@/lib/download-error';
 import { type DownloadScope, isValidDownloadToken } from '@/lib/download-token';
 import { isShareExpired } from '@/lib/expire';
@@ -9,6 +10,7 @@ import {
 import { prisma } from '@/lib/prisma';
 import { guardAction } from '@/lib/security/guard';
 import { clientIp } from '@/lib/security/ip';
+import { maintenanceState } from '@/lib/settings';
 import type { StorageFileRef } from '@/lib/storage/types';
 
 /**
@@ -37,7 +39,15 @@ export async function downloadGuard(
     route,
     userAgent: request.headers.get('user-agent'),
   });
-  if (outcome.ok) return null;
+  if (outcome.ok) {
+    // Maintenance mode stops downloads for visitors; the admin panel — and
+    // therefore the ability to test and to turn it off — keeps working.
+    const state = await maintenanceState();
+    if (state.active && !(await currentAdmin())) {
+      return downloadFailure('maintenance', { route });
+    }
+    return null;
+  }
 
   return outcome.status === 429
     ? downloadFailure('rate-limited', {

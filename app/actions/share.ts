@@ -19,6 +19,7 @@ import { codeShareSchema } from '@/lib/schemas';
 import { logSecurityEvent } from '@/lib/security/events';
 import { guardAction } from '@/lib/security/guard';
 import { clientIp } from '@/lib/security/ip';
+import { maintenanceState } from '@/lib/settings';
 import { getStorageProvider, type StorageLocation } from '@/lib/storage';
 
 export interface ShareResult {
@@ -53,12 +54,27 @@ async function caller(): Promise<{
   ip: string;
   userAgent: string | null;
   userId: string | null;
+  isAdmin: boolean;
 }> {
   const headerList = await headers();
+  const userId = await currentUserId();
+
+  // The role is only looked up for signed-in callers, which is rare — and it
+  // is what lets an administrator keep working while maintenance mode is on.
+  let isAdmin = false;
+  if (userId) {
+    const account = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, status: true },
+    });
+    isAdmin = account?.role === 'admin' && account.status === 'active';
+  }
+
   return {
     ip: clientIp(headerList),
     userAgent: headerList.get('user-agent'),
-    userId: await currentUserId(),
+    userId,
+    isAdmin,
   };
 }
 
@@ -109,6 +125,13 @@ export async function routeStatus(input: unknown): Promise<RouteStatus> {
     : { state: 'free', message: null };
 }
 
+/** Visitors cannot create shares while maintenance mode is on. */
+async function maintenanceRefusal(isAdmin: boolean): Promise<string | null> {
+  const state = await maintenanceState();
+  if (!state.active || isAdmin) return null;
+  return `${state.message} (Maintenance mode — nothing was created.)`;
+}
+
 /**
  * Create a code/text share.
  *
@@ -125,6 +148,9 @@ export async function createCodeShare(input: unknown): Promise<ShareResult> {
     userAgent: author.userAgent,
   });
   if (!guard.ok) return { ok: false, error: guard.message };
+
+  const maintenance = await maintenanceRefusal(author.isAdmin);
+  if (maintenance) return { ok: false, error: maintenance };
 
   const parsed = codeShareSchema.safeParse(input);
   if (!parsed.success) {
@@ -198,6 +224,9 @@ export async function createFileShare(
     userAgent: author.userAgent,
   });
   if (!guard.ok) return { ok: false, error: guard.message };
+
+  const maintenance = await maintenanceRefusal(author.isAdmin);
+  if (maintenance) return { ok: false, error: maintenance };
 
   const route = normalizeRoute(String(formData.get('route') ?? ''));
   const pin = String(formData.get('pin') ?? '');

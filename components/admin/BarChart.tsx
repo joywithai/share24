@@ -28,13 +28,20 @@ export function BarChart({
           {total} in the last {data.length} days
         </span>
       </figcaption>
+      <ul className="sr-only">
+        {data.map((point) => (
+          <li key={point.day}>
+            {point.day}: {point.count}
+          </li>
+        ))}
+      </ul>
       <div className="mt-4 flex h-24 items-end gap-1">
         {data.map((point) => (
           <div
             key={point.day}
             className="group flex h-full flex-1 items-end"
             title={`${point.day}: ${point.count}`}
-            aria-label={`${point.day}: ${point.count}`}
+            role="presentation"
           >
             <div
               className={`w-full rounded-t ${color} transition-opacity group-hover:opacity-100`}
