@@ -17,12 +17,22 @@ import { configuredStorageType, uploadsRoot } from '@/lib/storage';
 
 export const dynamic = 'force-dynamic';
 
-const R2_KEYS = [
-  'R2_ACCOUNT_ID',
-  'R2_ACCESS_KEY_ID',
-  'R2_SECRET_ACCESS_KEY',
-  'R2_BUCKET_NAME',
-] as const;
+/** The environment each bucket provider needs before it can serve a byte. */
+const PROVIDER_KEYS = {
+  R2: [
+    'R2_ACCOUNT_ID',
+    'R2_ACCESS_KEY_ID',
+    'R2_SECRET_ACCESS_KEY',
+    'R2_BUCKET_NAME',
+  ],
+  B2: ['B2_ENDPOINT', 'B2_KEY_ID', 'B2_APPLICATION_KEY', 'B2_BUCKET_NAME'],
+} as const;
+
+const PROVIDER_LABEL: Record<string, string> = {
+  LOCAL: 'the local disk',
+  R2: 'Cloudflare R2',
+  B2: 'Backblaze B2',
+};
 
 /**
  * /admin/storage — where the bytes are, whether they are still there, and
@@ -38,7 +48,11 @@ export default async function AdminStoragePage() {
   ]);
 
   const type = configuredStorageType();
-  const r2Ready = R2_KEYS.every((key) => Boolean(process.env[key]?.trim()));
+  const readyFor = (provider: 'R2' | 'B2') =>
+    PROVIDER_KEYS[provider].every((key) => Boolean(process.env[key]?.trim()));
+  const r2Ready = readyFor('R2');
+  const b2Ready = readyFor('B2');
+  const activeReady = type === 'B2' ? b2Ready : type === 'R2' ? r2Ready : true;
   const totalFiles = breakdown.reduce((sum, row) => sum + row.files, 0);
   const totalBytes = breakdown.reduce((sum, row) => sum + row.bytes, 0);
 
@@ -47,9 +61,9 @@ export default async function AdminStoragePage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Storage</h1>
         <p className="mt-1 text-sm text-sub">
-          New uploads go to{' '}
-          <strong>{type === 'R2' ? 'Cloudflare R2' : 'the local disk'}</strong>;
-          existing files keep downloading from wherever they were written.
+          New uploads go to <strong>{PROVIDER_LABEL[type] ?? type}</strong>
+          {activeReady ? '' : ' — credentials missing'}; existing files keep
+          downloading from wherever they were written.
         </p>
       </div>
 
@@ -64,43 +78,52 @@ export default async function AdminStoragePage() {
           hint={uploadsRoot()}
         />
         <StatCard
-          label="In the R2 bucket"
-          value={breakdown.find((row) => row.storageType === 'R2')?.files ?? 0}
-          hint={r2Ready ? 'credentials configured' : 'credentials missing'}
-          tone={type === 'R2' && !r2Ready ? 'danger' : 'neutral'}
+          label="In a bucket"
+          value={breakdown
+            .filter((row) => row.storageType !== 'LOCAL')
+            .reduce((sum, row) => sum + row.files, 0)}
+          hint={`R2 ${r2Ready ? 'ready' : 'not configured'} · B2 ${
+            b2Ready ? 'ready' : 'not configured'
+          }`}
+          tone={!activeReady ? 'danger' : 'neutral'}
         />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">R2 configuration</CardTitle>
+          <CardTitle className="text-sm">Bucket configuration</CardTitle>
           <CardDescription>
-            Only read when something actually uses R2. `STORAGE_TYPE` decides
-            where new uploads land; the per-file rows decide where old ones are
-            read from.
+            Only read when something actually uses a bucket. `STORAGE_TYPE`
+            decides where new uploads land; the per-file rows decide where old
+            ones are read from.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Badge variant={type === 'R2' ? 'default' : 'neutral'}>
+            <Badge variant={type !== 'LOCAL' ? 'default' : 'neutral'}>
               STORAGE_TYPE = {type}
             </Badge>
-            {R2_KEYS.map((key) => (
-              <Badge
-                key={key}
-                variant={process.env[key]?.trim() ? 'success' : 'neutral'}
-              >
-                {key} {process.env[key]?.trim() ? 'set' : 'unset'}
-              </Badge>
-            ))}
+            {(['R2', 'B2'] as const).flatMap((provider) =>
+              PROVIDER_KEYS[provider].map((key) => (
+                <Badge
+                  key={key}
+                  variant={process.env[key]?.trim() ? 'success' : 'neutral'}
+                >
+                  {key} {process.env[key]?.trim() ? 'set' : 'unset'}
+                </Badge>
+              )),
+            )}
           </div>
           <p className="text-xs text-sub">
-            Endpoint is derived from the account id:{' '}
+            R2 derives its endpoint from the account id (
             <code className="font-mono">
               https://&lt;account id&gt;.r2.cloudflarestorage.com
-            </code>{' '}
-            — downloads are streamed by the app, so the bucket never has to be
-            public and no CDN is involved.
+            </code>
+            ); B2 uses the endpoint in{' '}
+            <code className="font-mono">B2_ENDPOINT</code> with{' '}
+            <code className="font-mono">B2_REGION</code> matching the bucket.
+            Both are spoken over the S3 API — downloads are streamed by the app,
+            so a bucket never has to be public and no CDN is involved.
           </p>
         </CardContent>
       </Card>

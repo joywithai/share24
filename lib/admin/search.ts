@@ -120,7 +120,7 @@ export async function globalSearch(
     title: file.fileName,
     subtitle: `in /${file.share.route} · ${file.storageType}`,
     href: `/admin/files?q=${encodeURIComponent(file.fileName)}`,
-    badge: file.storageType === 'R2' ? 'R2' : 'local',
+    badge: file.storageType === 'LOCAL' ? 'local' : file.storageType,
   }));
 
   results.users = users.slice(0, perGroup).map((user) => ({

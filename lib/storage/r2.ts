@@ -1,21 +1,20 @@
-import {
-  DeleteObjectCommand,
-  DeleteObjectsCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  ListObjectsV2Command,
-  type ListObjectsV2CommandOutput,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3';
-import { getSignedUrl as presignUrl } from '@aws-sdk/s3-request-presigner';
-
+import { type S3Client, S3Client as S3ClientCtor } from '@aws-sdk/client-s3';
 import {
   isSafeShareId,
   isSafeStorageKey,
   storageKeyFor,
   storedNameFor,
 } from '@/lib/storage/naming';
+import {
+  assertKey,
+  deleteFile,
+  deleteMultiple,
+  downloadFile,
+  fileExists,
+  listKeys,
+  R2_BACKEND,
+  uploadFile,
+} from '@/lib/storage/s3';
 import {
   type IncomingFile,
   StorageConfigError,
@@ -24,6 +23,23 @@ import {
   type StorageLocation,
   type StorageProvider,
 } from '@/lib/storage/types';
+
+// The S3 object helpers are shared with the B2 provider; they are re-exported
+// here because `@/lib/storage` has always exposed them under these names.
+export {
+  assertKey,
+  B2_BACKEND,
+  deleteFile,
+  deleteMultiple,
+  downloadFile,
+  fileExists,
+  getSignedUrl,
+  isNotFound,
+  listKeys,
+  R2_BACKEND,
+  type S3Backend,
+  uploadFile,
+} from '@/lib/storage/s3';
 
 /**
  * Cloudflare R2 (S3-compatible) storage.
@@ -83,7 +99,7 @@ export function readR2Config(
 }
 
 export function createR2Client(config: R2Config): S3Client {
-  return new S3Client({
+  return new S3ClientCtor({
     // R2 has no regions; `auto` is what Cloudflare documents.
     region: 'auto',
     endpoint: config.endpoint,
@@ -92,192 +108,6 @@ export function createR2Client(config: R2Config): S3Client {
       secretAccessKey: config.secretAccessKey,
     },
   });
-}
-
-/** 404-shaped errors mean "not there", not "broken". */
-function isNotFound(error: unknown): boolean {
-  const candidate = error as {
-    name?: string;
-    Code?: string;
-    $metadata?: { httpStatusCode?: number };
-  } | null;
-  const name = candidate?.name ?? candidate?.Code ?? '';
-  return (
-    name === 'NoSuchKey' ||
-    name === 'NotFound' ||
-    candidate?.$metadata?.httpStatusCode === 404
-  );
-}
-
-function assertKey(key: string): void {
-  if (!isSafeStorageKey(key)) {
-    throw new StorageError(`Unsafe object key "${key}"`, {
-      code: 'unsafe_object_key',
-    });
-  }
-}
-
-export async function uploadFile(
-  client: S3Client,
-  bucket: string,
-  key: string,
-  bytes: Uint8Array,
-  contentType: string,
-): Promise<void> {
-  assertKey(key);
-  try {
-    await client.send(
-      new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: bytes,
-        ContentType: contentType,
-      }),
-    );
-  } catch (error) {
-    throw new StorageError(`R2 upload failed for ${key}`, {
-      code: 'r2_upload_failed',
-      cause: error,
-    });
-  }
-}
-
-/** The object's bytes, or `null` when the object is not in the bucket. */
-export async function downloadFile(
-  client: S3Client,
-  bucket: string,
-  key: string,
-): Promise<Uint8Array | null> {
-  assertKey(key);
-  try {
-    const result = await client.send(
-      new GetObjectCommand({ Bucket: bucket, Key: key }),
-    );
-    if (!result.Body) return null;
-    return new Uint8Array(await result.Body.transformToByteArray());
-  } catch (error) {
-    if (isNotFound(error)) return null;
-    throw new StorageError(`R2 download failed for ${key}`, {
-      code: 'r2_download_failed',
-      cause: error,
-    });
-  }
-}
-
-export async function deleteFile(
-  client: S3Client,
-  bucket: string,
-  key: string,
-): Promise<void> {
-  assertKey(key);
-  try {
-    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
-  } catch (error) {
-    throw new StorageError(`R2 delete failed for ${key}`, {
-      code: 'r2_delete_failed',
-      cause: error,
-    });
-  }
-}
-
-/** Delete in batches — the S3 API takes at most 1000 keys per call. */
-export async function deleteMultiple(
-  client: S3Client,
-  bucket: string,
-  keys: readonly string[],
-): Promise<void> {
-  for (const key of keys) assertKey(key);
-  for (let index = 0; index < keys.length; index += 1000) {
-    const batch = keys.slice(index, index + 1000);
-    if (batch.length === 0) continue;
-    try {
-      await client.send(
-        new DeleteObjectsCommand({
-          Bucket: bucket,
-          Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
-        }),
-      );
-    } catch (error) {
-      throw new StorageError(`R2 batch delete failed (${batch.length} keys)`, {
-        code: 'r2_delete_failed',
-        cause: error,
-      });
-    }
-  }
-}
-
-/** Every key under a prefix. Paged, because a listing is never complete. */
-export async function listKeys(
-  client: S3Client,
-  bucket: string,
-  prefix: string,
-): Promise<string[]> {
-  const keys: string[] = [];
-  let token: string | undefined;
-
-  do {
-    let page: ListObjectsV2CommandOutput;
-    try {
-      page = await client.send(
-        new ListObjectsV2Command({
-          Bucket: bucket,
-          Prefix: prefix,
-          ContinuationToken: token,
-        }),
-      );
-    } catch (error) {
-      throw new StorageError(`R2 listing failed for prefix ${prefix}`, {
-        code: 'r2_list_failed',
-        cause: error,
-      });
-    }
-    for (const object of page.Contents ?? []) {
-      if (object.Key) keys.push(object.Key);
-    }
-    token = page.IsTruncated ? page.NextContinuationToken : undefined;
-  } while (token);
-
-  return keys;
-}
-
-export async function fileExists(
-  client: S3Client,
-  bucket: string,
-  key: string,
-): Promise<boolean> {
-  assertKey(key);
-  try {
-    await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-    return true;
-  } catch (error) {
-    if (isNotFound(error)) return false;
-    throw new StorageError(`R2 head failed for ${key}`, {
-      code: 'r2_head_failed',
-      cause: error,
-    });
-  }
-}
-
-/** A temporary, signed GET URL — for tooling and future direct downloads. */
-export async function getSignedUrl(
-  client: S3Client,
-  bucket: string,
-  key: string,
-  expiresInSeconds = 3600,
-): Promise<string> {
-  assertKey(key);
-  try {
-    return await presignUrl(
-      client,
-      new GetObjectCommand({ Bucket: bucket, Key: key }),
-      { expiresIn: expiresInSeconds },
-    );
-  } catch (error) {
-    throw new StorageError(`Could not sign ${key}`, {
-      code: 'r2_sign_failed',
-      cause: error,
-    });
-  }
 }
 
 export class R2StorageProvider implements StorageProvider {
@@ -317,6 +147,7 @@ export class R2StorageProvider implements StorageProvider {
           key,
           await file.bytes(),
           file.mimeType,
+          R2_BACKEND,
         );
         locations.push({
           storedPath: key,
@@ -331,6 +162,7 @@ export class R2StorageProvider implements StorageProvider {
         this.client,
         this.config.bucket,
         locations.map((location) => location.storedPath),
+        R2_BACKEND,
       ).catch(() => {});
       throw error;
     }
@@ -338,15 +170,30 @@ export class R2StorageProvider implements StorageProvider {
   }
 
   async get(file: StorageFileRef): Promise<Uint8Array | null> {
-    return downloadFile(this.client, this.bucketOf(file), this.keyOf(file));
+    return downloadFile(
+      this.client,
+      this.bucketOf(file),
+      this.keyOf(file),
+      R2_BACKEND,
+    );
   }
 
   async exists(file: StorageFileRef): Promise<boolean> {
-    return fileExists(this.client, this.bucketOf(file), this.keyOf(file));
+    return fileExists(
+      this.client,
+      this.bucketOf(file),
+      this.keyOf(file),
+      R2_BACKEND,
+    );
   }
 
   async delete(file: StorageFileRef): Promise<void> {
-    await deleteFile(this.client, this.bucketOf(file), this.keyOf(file));
+    await deleteFile(
+      this.client,
+      this.bucketOf(file),
+      this.keyOf(file),
+      R2_BACKEND,
+    );
   }
 
   async deleteShare(shareId: string): Promise<void> {
@@ -356,8 +203,13 @@ export class R2StorageProvider implements StorageProvider {
       });
     }
     const prefix = `${shareId}/`;
-    const keys = await listKeys(this.client, this.config.bucket, prefix);
-    await deleteMultiple(this.client, this.config.bucket, keys);
+    const keys = await listKeys(
+      this.client,
+      this.config.bucket,
+      prefix,
+      R2_BACKEND,
+    );
+    await deleteMultiple(this.client, this.config.bucket, keys, R2_BACKEND);
   }
 
   /** The key of a row: the R2 column, falling back to the mirrored path. */

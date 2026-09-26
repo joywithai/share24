@@ -3,7 +3,6 @@ import { DOWNLOAD_SCOPE_ALL } from '@/lib/download-token';
 import { authorizeDownload, downloadGuard } from '@/lib/downloads';
 import {
   availableFiles,
-  getStorageProvider,
   providerFor,
   resolveStoredPath,
   type StorageFileRef,
@@ -125,6 +124,9 @@ function zipSourceFor(file: StorageFileRef): ZipSource {
     return { kind: 'path', path: absolute };
   }
 
-  const provider = getStorageProvider('R2');
+  // `providerFor` reads the provider named on the row — R2, B2, or whatever
+  // comes next. Hard-coding one here is how a B2 share ends up with a 500 on
+  // its ZIP while its own files still download.
+  const provider = providerFor(file);
   return { kind: 'remote', load: () => provider.get(file) };
 }

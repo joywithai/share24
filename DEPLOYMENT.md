@@ -14,7 +14,7 @@ the pieces below when you need them.
 | Piece | Why | Where |
 | ----- | --- | ----- |
 | **Supabase** (or any Postgres) | The database. | [supabase.com](https://supabase.com) |
-| **Cloudflare R2** | Files. Vercel's disk is ephemeral — uploads must not live there. | Cloudflare dashboard → R2 |
+| **Backblaze B2** (or Cloudflare R2) | Files. Vercel's disk is ephemeral — uploads must not live there. | [backblaze.com](https://www.backblaze.com/cloud-storage) / Cloudflare dashboard → R2 |
 | **Vercel** | Hosting, and the cron that runs the cleanup job. | [vercel.com](https://vercel.com) |
 | **Upstash Redis** (optional) | Rate-limit counters shared across instances. Without it, limits are per-instance. | [upstash.com](https://upstash.com) |
 
@@ -50,8 +50,16 @@ the pieces below when you need them.
    anything missing from it, so do not point it at a database you migrated
    this way.
 
-3. **Bucket.** Create the R2 bucket, then an API token with **Object Read &
-   Write** on that bucket. Note the account id, the key id and the secret.
+3. **Bucket.** Either provider works; both are spoken over the S3 API.
+
+   *Backblaze B2:* create a bucket (note its **region**, e.g. `us-east-005`),
+   then an application key with read/write access to it. You need the key id,
+   the application key, the endpoint (`s3.<region>.backblazeb2.com`), the
+   bucket name and that same region — B2 signs per region, so a mismatch is an
+   auth error rather than a 404.
+
+   *Cloudflare R2:* create the bucket, then an API token with **Object Read &
+   Write** on it. Note the account id, the key id and the secret.
 
 4. **Deploy.** Push the repository to GitHub, import it in Vercel. Set the
    environment variables:
@@ -59,15 +67,17 @@ the pieces below when you need them.
    | Variable | Value |
    | -------- | ----- |
    | `DATABASE_URL` | the Supabase **transaction pooler** URI, with `?sslmode=require` |
+   | `DIRECT_URL` | the Supabase **session pooler** URI (port 5432, `?sslmode=require`) — used by `npm run db:deploy` so migrations get a real session |
    | `BETTER_AUTH_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
    | `UNLOCK_SECRET` | another random hex string |
    | `NEXT_PUBLIC_APP_URL` | `https://your-domain.com` |
-   | `STORAGE_TYPE` | `R2` |
-   | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` | from step 2 |
+   | `STORAGE_TYPE` | `B2` (or `R2`) |
+   | `B2_ENDPOINT`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET_NAME`, `B2_REGION` | from step 3, for B2 |
+   | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` | from step 3, for R2 |
    | `CRON_SECRET` | a random string — Vercel sends it with the cron request |
    | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | from Upstash (optional) |
 
-   Do **not** set `CORIUM_UPLOADS_DIR` in production; with `STORAGE_TYPE=R2`
+   Do **not** set `CORIUM_UPLOADS_DIR` in production; with a bucket selected
    nothing new is written to the disk. Set these **before the first deploy**:
    the build imports the Prisma client while collecting page data, so a build
    without `DATABASE_URL` fails with `DATABASE_URL is not set`.
@@ -123,7 +133,7 @@ the pieces below when you need them.
 ```bash
 git clone <repo> && cd share24
 npm install                  # postinstall generates the Prisma client
-cp .env.example .env         # fill in DATABASE_URL + the two secrets
+cp .env.example .env         # fill in DATABASE_URL + the two secrets (+ DIRECT_URL on Supabase, bucket keys if you use one)
 npm run db:dev               # or point DATABASE_URL at your own Postgres
 npm run build                # needs DATABASE_URL in the environment
 npm run start                # listens on 0.0.0.0:3000
@@ -142,7 +152,7 @@ npm run start                # listens on 0.0.0.0:3000
      If you serve it top-level, add `Content-Security-Policy:
      frame-ancestors 'none'` at the proxy.
 - **Backups**: `pg_dump` for the database plus a copy of `CORIUM_UPLOADS_DIR`
-  (or the R2 bucket). They must be restored together — a row without its bytes
+  (or the B2/R2 bucket). They must be restored together — a row without its bytes
   renders the "gone" panel, and bytes without a row are collected by the next
   cleanup run as stray files.
 
@@ -198,6 +208,26 @@ Admin → Storage → **Run cleanup now**, or the cron endpoint. It removes:
 | Security events | Older than 30 days |
 
 `cleanup_enabled = off` pauses the *scheduled* run (a manual run still works).
+
+### Rate limits
+
+| What | Limit | Counted per |
+| ---- | ----- | ----------- |
+| Creating a code share | 10 per hour | address |
+| Uploading files | 20 per hour | address |
+| PIN attempts | 5 per minute | address **and** share |
+| Downloads | 30 per hour | address |
+| Sign-in attempts | 5 per 15 minutes | address |
+
+Three violations from one address earn a 15-minute block, on top of the limit.
+The numbers are constants in `lib/security/rate-limit.ts` — raise `create`,
+`upload`, `download` or `login` there if your audience is behind one NAT and
+they complain (a busy office looks like one address).
+
+Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` so every instance
+counts on the same counters; without them each process counts alone, which is
+correct for a single server. A configured-but-unreachable Redis falls back to
+memory after 1.5 s instead of failing the request.
 
 ### Health checks
 

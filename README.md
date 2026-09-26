@@ -73,7 +73,8 @@ extra step, no account, no cookie banner.
   panel): expired shares past the retention window, orphaned rows, unclaimed
   files, empty folders, expired blocks, old events — bounded and idempotent
 - Maintenance mode that visitors see and administrators can still work through
-- Storage that can leave the disk: LOCAL or Cloudflare R2, per file
+- Storage that can leave the disk: LOCAL, Cloudflare R2 or Backblaze B2, per
+  file (all three go through one `StorageProvider` contract)
 - Configurable retention and cleanup switches in a typed settings registry
 
 **Deployment** — see [`DEPLOYMENT.md`](./DEPLOYMENT.md).
@@ -149,7 +150,8 @@ apply the schema with `npx prisma migrate deploy` (the migration SQL lives in
 | `npm run db:generate` | Generate the Prisma client (offline-safe wrapper; `npm install` runs it for you) |
 | `npm run postinstall` | Runs after installs — generates the client so a fresh clone can build |
 | `npm run db:seed`     | Demo user + sample shares (active code, active file, expired) |
-| `npm test`            | Vitest: unit + component + server-action tests (258)      |
+| `npm run db:deploy`   | Apply migrations with the Prisma CLI (uses `DIRECT_URL`)  |
+| `npm test`            | Vitest: unit + component + server-action tests (293)      |
 | `npm run e2e`         | Playwright: the 3 critical flows (needs `npx playwright install chromium`) |
 | `npm run lint`        | Biome check                                               |
 
@@ -161,16 +163,39 @@ apply the schema with `npx prisma migrate deploy` (the migration SQL lives in
 | `BETTER_AUTH_SECRET` | yes      | Random 32+ byte hex — session cookies, unlock-token HMAC |
 | `NEXT_PUBLIC_APP_URL`| prod     | Public URL; Better Auth cookie scoping. Leave empty locally |
 | `CORIUM_UPLOADS_DIR` | no       | Upload storage root for `LOCAL`, default `/tmp/corium-uploads` (dev bootstrap uses `./.uploads`) |
-| `STORAGE_TYPE`       | no       | Where **new** uploads go: `LOCAL` (default) or `R2`. Existing shares keep their own storage |
+| `DIRECT_URL`         | Supabase | Session-pooler URI (port 5432) used by every Prisma CLI command, so migrations get a real session while the app uses the pooler. `prisma.config.ts` prefers it when set |
+| `STORAGE_TYPE`       | no       | Where **new** uploads go: `LOCAL` (default), `R2` or `B2`. Existing shares keep their own storage |
+| `B2_ENDPOINT`        | B2       | `s3.us-east-005.backblazeb2.com` (scheme optional; a localhost endpoint turns on path-style) |
+| `B2_KEY_ID` / `B2_APPLICATION_KEY` | B2 | B2 key id and application key for the bucket |
+| `B2_BUCKET_NAME`     | B2       | Bucket that holds the uploaded objects |
+| `B2_REGION`          | B2       | Must match the bucket's own region (default `us-east-005`) |
+| `B2_FORCE_PATH_STYLE`| no       | Set `true` for an S3-compatible server that needs path-style URLs (implied for localhost) |
 | `R2_ACCOUNT_ID`      | R2       | Cloudflare account id — the endpoint becomes `https://<id>.r2.cloudflarestorage.com` |
 | `R2_ACCESS_KEY_ID`   | R2       | R2 API token (Object Read & Write on the bucket) |
 | `R2_SECRET_ACCESS_KEY` | R2     | The token's secret |
 | `R2_BUCKET_NAME`     | R2       | Bucket that holds the uploaded objects |
-| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | no | Shared rate-limit counters (Upstash Redis). Unset = per-process |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | no | Shared rate-limit counters (Upstash Redis). Unset = per-process; unreachable = falls back after 1.5 s |
 | `CRON_SECRET`        | prod     | Bearer token for `/api/cron/cleanup`. Unset = admins only |
 | `UNLOCK_SECRET`      | no       | Separate HMAC secret for PIN unlock cookies; falls back to `BETTER_AUTH_SECRET` |
 | `CORIUM_ALLOWED_ORIGINS` | no   | Comma-separated public origins allowed to post Server Actions when a reverse proxy rewrites `Host` (wildcards ok, e.g. `*.example.app`) |
 | `CORIUM_TRUSTED_ORIGINS` | no   | Comma-separated extra origins accepted by Better Auth's CSRF check |
+
+### Rate limits
+
+Windows live in `lib/security/rate-limit.ts` (`RATE_LIMITS`) and are named in
+`lib/rate-limit/index.ts`, so code and panel talk about the same thing:
+
+| Profile      | Limit | Counted per |
+| ------------ | ----- | ----------- |
+| `createShare`| 10 per hour | IP |
+| `uploadFile` | 20 per hour | IP |
+| `verifyPin`  | 5 per minute | IP **+ route** |
+| `download`   | 30 per hour | IP |
+| `login`      | 5 per 15 minutes | IP |
+
+Three violations from one address earn an automatic 15-minute block, and
+everything is visible on `/admin/security`. The numbers are constants, not
+config: raise them by editing `RATE_LIMITS` (and the test that pins them).
 
 > **Behind a TLS-terminating proxy (preview tunnels, Vercel, nginx):** the proxy
 > forwards plain `http://` to the app while browsers send `Origin: https://…`.
@@ -238,16 +263,20 @@ below; until it runs the bytes simply sit there, unreachable.
 ### File storage (providers)
 
 Every read and write goes through `StorageProvider` (`lib/storage/`): the local
-disk (`LocalStorageProvider`, the V1 default) or a Cloudflare R2 bucket
-(`R2StorageProvider`). Both name objects the same way —
+disk (`LocalStorageProvider`, the V1 default), a Cloudflare R2 bucket
+(`R2StorageProvider`) or a Backblaze B2 bucket (`B2StorageProvider`). R2 and B2
+share the object operations in `lib/storage/s3.ts` — they speak the same API,
+so only the endpoint, the region and the error labels differ. All of them name
+objects the same way —
 `<shareId>/<n>-<sanitized name>`, the share id a server-side random UUID, the
 file name stripped of path separators and unusual characters, never taken from
 user input as-is — and downloads are streamed by the app, so the bucket never
 has to be public and no CDN is involved.
 
 Which provider serves a file is decided **per row** (`ShareFile.storageType`),
-which is what makes the switch safe: set `STORAGE_TYPE=R2` and new uploads go to
-the bucket while every share already on the disk keeps downloading. Without R2
+which is what makes the switch safe: set `STORAGE_TYPE=B2` and new uploads go to
+the bucket while every share already on the disk keeps downloading — reads go
+through `providerFor(file)`, never through a hard-coded provider. Without bucket
 credentials the app only ever touches the disk.
 
 The old local helpers — `<uploads root>/<shareId>/<n>-<name>` and the
@@ -325,13 +354,15 @@ token.
 ## Testing
 
 ```bash
-npm test                    # 258 tests: route/pin/file/expire/schema rules,
+npm test                    # 293 tests: route/pin/file/expire/schema rules,
                             # the ZIP writer and download availability,
                             # download failure pages, auth + create flows,
                             # server actions (mocked DB, real file I/O),
                             # rate limits + IP blocking + upload sniffing,
                             # admin guards, settings coercion, cleanup,
-                            # global search, UI components (jsdom)
+                            # global search, storage providers (LOCAL / R2 /
+                            # B2, incl. real HTTP against a stub S3),
+                            # rate limits, UI components (jsdom)
 npm run e2e                 # Playwright: code round-trip, file download,
                             # PIN wrong→correct
 ```
@@ -345,8 +376,9 @@ Full walkthrough — Vercel + Supabase + R2, Docker/self-hosting, the environmen
 variables, the cron endpoint, backups and the V1 limits — lives in
 [`DEPLOYMENT.md`](./DEPLOYMENT.md). The short version: `DATABASE_URL`,
 `BETTER_AUTH_SECRET` and `UNLOCK_SECRET` are required, `STORAGE_TYPE=R2` plus
-the four R2 values is what makes it production-safe on a host with an ephemeral
-disk, and `CRON_SECRET` turns the cleanup endpoint on.
+the B2 (or R2) values is what makes it production-safe on a host with an
+ephemeral disk, and `CRON_SECRET` turns the cleanup endpoint on. Supabase needs
+both connection strings — the pooler for the app, `DIRECT_URL` for migrations.
 
 ## Repository layout
 

@@ -218,7 +218,9 @@ export async function createFileShare(
   formData: FormData,
 ): Promise<ShareResult> {
   const author = await caller();
-  const guard = await guardAction('create', {
+  // Uploads use their own window: a set of files is heavier than a snippet,
+  // but an author moving a few sets deserves more than ten of them an hour.
+  const guard = await guardAction('upload', {
     ip: author.ip,
     userId: author.userId,
     userAgent: author.userAgent,

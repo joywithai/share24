@@ -8,6 +8,57 @@ not by which file moved.
 Base: `5a588f7` — *upload UX round* — bigger drop area, block-list upload rules
 (archives / executables / web pages / media), live route-availability check.
 
+## [1.1.0] — Production Storage & Security
+
+### Added
+- **Backblaze B2 file storage** (S3-compatible) — `lib/storage/b2.ts`. The
+  endpoint's scheme is optional, the region follows the bucket, and a localhost
+  endpoint switches to path-style addressing, so the same provider can be
+  pointed at an S3-compatible server on a private network.
+- **An abstract storage layer with three providers** — `LOCAL`, `R2`, `B2` —
+  behind one `StorageProvider` contract. R2 and B2 share the object operations
+  in `lib/storage/s3.ts`; uploads follow `STORAGE_TYPE`, reads follow the
+  provider recorded on the file's own row, and nothing hard-codes one any more
+  (a bug this round: the ZIP path had asked for R2 by name, so a B2 share
+  downloaded its files individually but 500'd on "Download all").
+- **Upstash Redis rate limiting** — the counters live in Upstash when
+  `UPSTASH_REDIS_REST_URL`/`_TOKEN` are set, so every instance shares them. The
+  REST calls carry a 1.5 s timeout.
+- **In-memory rate limit fallback** for development and single-server
+  deployments — and for a Redis that is configured but unreachable: the request
+  is counted in memory instead of failing.
+- **Supabase PostgreSQL support** — the transaction pooler (`6543`,
+  `?pgbouncer=true`) for the app, and `DIRECT_URL` (session pooler, `5432`) for
+  migrations. Prisma 7 dropped `directUrl` from the schema, so
+  `prisma.config.ts` prefers `DIRECT_URL` for every CLI command; `npm run
+  db:deploy` runs the migrations over it. Both strings need `sslmode=require`:
+  node-postgres only starts TLS when the URL asks for it.
+- `lib/rate-limit/index.ts` — the limits by name (`createShare`, `uploadFile`,
+  `verifyPin`, `download`, `login`), one source of truth, plus
+  `checkRateLimit()`/`isRateLimited()` for callers that want the count without
+  the guard.
+- Tests for the storage providers (including the B2 provider over real HTTP
+  against a stub S3 server), the rate-limit profiles and the Redis fallback.
+  Suite: 258 → 293.
+
+### Security
+- Rate limiting on share creation (10/hour), uploads (20/hour), PIN
+  verification (5/minute, counted per address **and** per share), downloads
+  (30/hour) and sign-in (5/15 minutes, enforced in middleware before Better
+  Auth hashes anything).
+- PIN brute-force protection: the counter is scoped to the address *and* the
+  route, so guessing at two shares is two attacks.
+- Three violations from one address still earn an automatic 15-minute block,
+  and the refusal message now reads "Try again in 1 hour" instead of "in 60
+  minutes".
+
+### Unchanged
+- All V1 features work exactly as before — Monaco editor, PIN system, HMAC
+  download tokens, ZIP generation, lazy expiry, sessionStorage slugs, Better
+  Auth, the admin panel and the cleanup job.
+- `STORAGE_TYPE=LOCAL` → no behaviour change at all: the same paths on disk, the
+  same download routes, the same limits enforced in memory.
+
 ## Supabase, and an install that builds on a fresh clone
 
 Two corrections after the fact, both about actually getting this deployed:

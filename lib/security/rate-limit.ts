@@ -20,6 +20,22 @@ export interface RateLimitRule {
   windowMs: number;
   /** Requests allowed inside one window. */
   max: number;
+  /**
+   * Count per address *and* per share rather than per address alone. Only PIN
+   * attempts need this: one address guessing at two different shares is two
+   * attacks, not one.
+   */
+  perRoute?: boolean;
+}
+
+/** A window in words — `1 hour`, `15 min`, `30 seconds`. */
+export function describeWindow(windowMs: number): string {
+  if (windowMs % 3_600_000 === 0) {
+    const hours = windowMs / 3_600_000;
+    return `${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  if (windowMs % 60_000 === 0) return `${windowMs / 60_000} min`;
+  return `${Math.max(1, Math.round(windowMs / 1000))} seconds`;
 }
 
 export interface RateLimitResult {
@@ -41,6 +57,12 @@ export interface RateLimiter {
 export function describeRetry(retryAfterMs: number): string {
   const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
   if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'}`;
+  // "Try again in 60 minutes" reads worse than "in 1 hour", and the hourly
+  // windows below are exactly where a caller meets this message.
+  if (seconds >= 3600) {
+    const hours = Math.ceil(seconds / 3600);
+    return `${hours} hour${hours === 1 ? '' : 's'}`;
+  }
   const minutes = Math.ceil(seconds / 60);
   return `${minutes} minute${minutes === 1 ? '' : 's'}`;
 }
@@ -120,7 +142,12 @@ interface UpstashOptions {
   token: string;
   fallback: RateLimiter;
   fetchImpl?: typeof fetch;
+  /** Give up on Redis after this long and count in memory instead. */
+  timeoutMs?: number;
 }
+
+/** An unreachable Redis must never hold a request open. */
+const DEFAULT_UPSTASH_TIMEOUT_MS = 1500;
 
 /**
  * Counters in Upstash Redis, spoken over its REST pipeline endpoint:
@@ -155,6 +182,7 @@ export class UpstashRateLimiter implements RateLimiter {
     seconds: number,
   ): Promise<RateLimitResult> {
     const doFetch = this.options.fetchImpl ?? fetch;
+    const timeoutMs = this.options.timeoutMs ?? DEFAULT_UPSTASH_TIMEOUT_MS;
     const response = await doFetch(`${this.options.url}/pipeline`, {
       method: 'POST',
       headers: {
@@ -167,6 +195,7 @@ export class UpstashRateLimiter implements RateLimiter {
         ['TTL', key],
       ]),
       cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!response.ok) {
@@ -188,20 +217,25 @@ export class UpstashRateLimiter implements RateLimiter {
 
 /**
  * The rules, in one place so the admin panel can show and reason about them.
- * `create` and `pin` are deliberately tight — both write to the database and
- * both are things an attacker would script.
+ * `create`, `upload`, `pin` and `login` are deliberately tight — they write to
+ * the database, or they are guesses an attacker would script.
+ *
+ * The friendly names in `lib/rate-limit/index.ts` (`createShare`, `uploadFile`,
+ * `verifyPin`, `download`, `login`) map one-to-one onto these keys.
  */
 export const RATE_LIMITS = {
-  /** Creating a share (code or file) — per address. */
-  create: { windowMs: 10 * 60_000, max: 20 },
-  /** PIN attempts — per address and route. */
-  pin: { windowMs: 10 * 60_000, max: 8 },
-  /** Downloads — per address. Generous: one ZIP plus each file of a set. */
-  download: { windowMs: 60_000, max: 60 },
+  /** Creating a *code* share — per address, 10 per hour. */
+  create: { windowMs: 60 * 60_000, max: 10 },
+  /** Uploading files to a share — per address, 20 per hour. */
+  upload: { windowMs: 60 * 60_000, max: 20 },
+  /** PIN attempts — per address *and* share, 5 per minute. */
+  pin: { windowMs: 60_000, max: 5, perRoute: true },
+  /** Downloads — per address, 30 per hour. */
+  download: { windowMs: 60 * 60_000, max: 30 },
+  /** Sign-in attempts — per address, 5 per 15 minutes. */
+  login: { windowMs: 15 * 60_000, max: 5 },
   /** Cheap read-only actions (route availability checks). */
   lookup: { windowMs: 60_000, max: 120 },
-  /** Auth endpoints in front of Better Auth. */
-  auth: { windowMs: 60_000, max: 30 },
 } as const;
 
 export type RateLimitKind = keyof typeof RATE_LIMITS;
@@ -241,4 +275,17 @@ export async function enforceRateLimit(
   const key = `corium:rl:${kind}:${identifier}`;
   const outcome = await getRateLimiter().hit(key, rule);
   return { ...outcome, key };
+}
+
+/**
+ * The identifier a rule counts against: the address, plus the route for rules
+ * that are scoped per share (`pin`).
+ */
+export function rateLimitIdentifier(
+  kind: RateLimitKind,
+  ip: string,
+  route?: string | null,
+): string {
+  const rule: RateLimitRule = RATE_LIMITS[kind];
+  return rule.perRoute && route ? `${ip}:${route}` : ip;
 }

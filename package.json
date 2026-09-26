@@ -9,6 +9,7 @@
     "db:dev": "node scripts/db.mjs",
     "db:generate": "node scripts/prisma.mjs generate",
     "db:seed": "node scripts/seed.mjs",
+    "db:deploy": "prisma migrate deploy",
     "postinstall": "node scripts/postinstall.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

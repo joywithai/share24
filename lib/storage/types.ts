@@ -3,12 +3,13 @@
  *
  * V1 wrote uploads straight to the local disk. Every place that touches bytes
  * now goes through a `StorageProvider` instead, so the app can keep its files
- * on the disk (default) or in a Cloudflare R2 bucket without the share code,
- * the download routes or the ZIP writer knowing which one it is.
+ * on the disk (default) or in a Cloudflare R2 / Backblaze B2 bucket without
+ * the share code, the download routes or the ZIP writer knowing which one it
+ * is.
  */
 
 /** Where a file's bytes live. Mirrors the `StorageType` enum in the schema. */
-export type StorageType = 'LOCAL' | 'R2';
+export type StorageType = 'LOCAL' | 'R2' | 'B2';
 
 /** A storage operation failed in a way the caller cannot paper over. */
 export class StorageError extends Error {
@@ -55,10 +56,12 @@ export interface IncomingFile {
 
 /** Where a stored file ended up — the storage half of a `ShareFile` row. */
 export interface StorageLocation {
-  /** Local: path relative to the uploads root. R2: a copy of the object key. */
+  /** Local: path relative to the uploads root. Bucket: a copy of the object key. */
   storedPath: string;
   storageType: StorageType;
+  /** The object key — set for R2 *and* B2 (the columns predate B2). */
   r2Key: string | null;
+  /** The bucket it was written to, so a later bucket change cannot orphan it. */
   r2Bucket: string | null;
 }
 

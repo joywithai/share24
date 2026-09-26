@@ -163,9 +163,9 @@ export default async function AdminFilesPage({
               </Cell>
               <Cell>
                 <Badge
-                  variant={file.storageType === 'R2' ? 'default' : 'neutral'}
+                  variant={file.storageType === 'LOCAL' ? 'neutral' : 'default'}
                 >
-                  {file.storageType === 'R2' ? 'R2' : 'local'}
+                  {file.storageType === 'LOCAL' ? 'local' : file.storageType}
                 </Badge>
               </Cell>
               <Cell className="text-xs text-sub">

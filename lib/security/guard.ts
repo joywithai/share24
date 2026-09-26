@@ -3,9 +3,11 @@ import type { HeaderSource } from '@/lib/security/ip';
 import { clientIp, UNKNOWN_IP } from '@/lib/security/ip';
 import {
   describeRetry,
+  describeWindow,
   enforceRateLimit,
   RATE_LIMITS,
   type RateLimitKind,
+  rateLimitIdentifier,
 } from '@/lib/security/rate-limit';
 
 /**
@@ -113,7 +115,12 @@ export async function guardAction(
     }
   }
 
-  const limit = await enforceRateLimit(kind, ip, RATE_LIMITS[kind]);
+  // PIN attempts count per address *and* share; everything else per address.
+  const limit = await enforceRateLimit(
+    kind,
+    rateLimitIdentifier(kind, ip, context.route),
+    RATE_LIMITS[kind],
+  );
   if (limit.ok) return { ok: true };
 
   const retryAfterSeconds = Math.max(1, Math.ceil(limit.retryAfterMs / 1000));
@@ -124,7 +131,7 @@ export async function guardAction(
     route: context.route ?? null,
     userId: context.userId ?? null,
     userAgent: context.userAgent ?? null,
-    detail: `${kind}: ${limit.limit} per ${Math.round(RATE_LIMITS[kind].windowMs / 60000)} min exceeded`,
+    detail: `${kind}: ${limit.limit} per ${describeWindow(RATE_LIMITS[kind].windowMs)} exceeded`,
   });
 
   if (ip !== UNKNOWN_IP && countViolation(ip, now) >= AUTO_BLOCK_VIOLATIONS) {
