@@ -185,6 +185,12 @@ when that file belongs to the share in the URL.
   `register`, `create`, `profile`, `favicon`, `robots`, `sitemap`, `_next`, …)
 - PINs stored bcrypt-only; unlock cookies are HMAC-SHA256 signed, per-route,
   ≤ 1 h, httpOnly, SameSite=Lax
+- Download links on an unlocked page carry a short-lived HMAC token (`?k=`,
+  scoped to that route and to either the whole share or one file) so a download
+  still works when the unlock cookie is missing — stripped by a proxy, refused
+  as a third-party cookie, or invalidated by a rotated secret. If neither is
+  valid the visitor is sent back to the PIN form with `?download=<scope>`, and
+  the download resumes by itself once the PIN is accepted
 - Server-side re-validation of everything (schemas, file type/size, routes)
 - Files: extension allow-list + declared-MIME cross-check (deep magic-byte
   block-list rejects archives/executables/web pages/media), 10 MB per file,

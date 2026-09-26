@@ -17,7 +17,10 @@ export async function GET(
 ) {
   const { route, fileId } = await context.params;
 
-  const access = await authorizeDownload(request, route);
+  const access = await authorizeDownload(request, route, {
+    scope: fileId,
+    token: new URL(request.url).searchParams.get('k'),
+  });
   if (!access.ok) return access.response;
 
   const file = access.files.find((entry) => entry.id === fileId);

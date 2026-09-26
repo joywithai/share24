@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 
+import { DOWNLOAD_SCOPE_ALL } from '@/lib/download-token';
 import { authorizeDownload } from '@/lib/downloads';
 import { resolveStoredPath } from '@/lib/storage';
 import { safeEntryName, zipStream } from '@/lib/zip';
@@ -19,7 +20,10 @@ export async function GET(
 ) {
   const { route } = await context.params;
 
-  const access = await authorizeDownload(request, route);
+  const access = await authorizeDownload(request, route, {
+    scope: DOWNLOAD_SCOPE_ALL,
+    token: new URL(request.url).searchParams.get('k'),
+  });
   if (!access.ok) return access.response;
 
   // Never trust the stored paths — each must resolve inside the uploads root.

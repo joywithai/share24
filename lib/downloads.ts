@@ -1,3 +1,4 @@
+import { type DownloadScope, isValidDownloadToken } from '@/lib/download-token';
 import { isShareExpired } from '@/lib/expire';
 import {
   isValidUnlockToken,
@@ -38,6 +39,7 @@ function gone(message: string, status = 410): Response {
 export async function authorizeDownload(
   request: Request,
   route: string,
+  options: { scope: DownloadScope; token?: string | null } = { scope: 'all' },
 ): Promise<DownloadAccess> {
   const share = await prisma.share.findFirst({
     where: { route, type: 'file' },
@@ -51,18 +53,34 @@ export async function authorizeDownload(
 
   if (share.pinHash) {
     const cookieHeader = request.headers.get('cookie') ?? '';
-    const token = parseCookieHeader(cookieHeader).get(unlockCookieName(route));
-    if (!token || !isValidUnlockToken(token, route)) {
+    const cookieToken = parseCookieHeader(cookieHeader).get(
+      unlockCookieName(route),
+    );
+    const unlocked =
+      Boolean(cookieToken && isValidUnlockToken(cookieToken, route)) ||
+      // A signed link minted by the page that was already unlocked — see
+      // lib/download-token.ts for why this exists.
+      Boolean(
+        options.token &&
+          isValidDownloadToken(options.token, route, options.scope),
+      );
+
+    if (!unlocked) {
+      // Back to the share page, *remembering* what was being downloaded, so
+      // the PIN form can hand the file over right after a successful unlock
+      // instead of making the visitor find the button again.
+      //
       // A *relative* Location on purpose: behind a TLS-terminating proxy
       // (sandbox previews, Vercel) `request.url` is the internal `http://`
       // URL, so an absolute redirect would send the browser to a scheme the
       // public host does not serve. Relative resolves against the origin the
       // browser actually used.
+      const back = `/${route}?download=${encodeURIComponent(options.scope)}`;
       return {
         ok: false,
         response: new Response(null, {
           status: 303,
-          headers: { Location: `/${route}`, 'Cache-Control': 'no-store' },
+          headers: { Location: back, 'Cache-Control': 'no-store' },
         }),
       };
     }

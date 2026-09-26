@@ -1,10 +1,25 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ShareView } from '@/components/share/ShareView';
 
 afterEach(cleanup);
+
+const twoFiles = [
+  {
+    id: 'f1',
+    fileName: 'alpha.txt',
+    fileSize: 1024,
+    mimeType: 'text/plain',
+  },
+  {
+    id: 'f2',
+    fileName: 'beta.png',
+    fileSize: 2048,
+    mimeType: 'image/png',
+  },
+];
 
 const base = {
   route: 'my-set',
@@ -81,5 +96,76 @@ describe('ShareView — file shares', () => {
   it('still shows the code viewer for code shares', () => {
     render(<ShareView {...base} type="code" content="const a = 1;" />);
     expect(screen.queryByText('Download all (.zip)')).toBeNull();
+  });
+});
+
+describe('ShareView — download tokens and the resume-after-PIN flow', () => {
+  it('signs every download link, so it works without the unlock cookie', () => {
+    render(
+      <ShareView
+        {...base}
+        files={twoFiles}
+        downloadTokens={{ all: 'tok-all', f1: 'tok-1', f2: 'tok-2' }}
+      />,
+    );
+
+    const hrefs = screen
+      .getAllByRole('link')
+      .map((link) => link.getAttribute('href'));
+    expect(hrefs).toContain('/my-set/download?k=tok-all');
+    expect(hrefs).toContain('/my-set/download/f1?k=tok-1');
+    expect(hrefs).toContain('/my-set/download/f2?k=tok-2');
+  });
+
+  it('leaves links unsigned when the page is a code share', () => {
+    render(<ShareView {...base} type="code" content="x" downloadTokens={{}} />);
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('resumes a download that bounced off the PIN gate', async () => {
+    const clicked: string[] = [];
+    const spy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        clicked.push(this.getAttribute('data-download-key') ?? '');
+      });
+
+    try {
+      render(
+        <ShareView
+          {...base}
+          files={twoFiles}
+          downloadTokens={{ all: 'tok-all' }}
+          downloadIntent="all"
+        />,
+      );
+
+      await waitFor(() => expect(clicked).toEqual(['all']));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('resumes one specific file, and does nothing for an unknown intent', async () => {
+    const clicked: string[] = [];
+    const spy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        clicked.push(this.getAttribute('data-download-key') ?? '');
+      });
+
+    try {
+      const { unmount } = render(
+        <ShareView {...base} files={twoFiles} downloadIntent="f2" />,
+      );
+      await waitFor(() => expect(clicked).toEqual(['f2']));
+      unmount();
+
+      render(<ShareView {...base} files={twoFiles} downloadIntent="gone" />);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(clicked).toEqual(['f2']);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

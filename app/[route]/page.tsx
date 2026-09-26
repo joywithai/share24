@@ -1,8 +1,12 @@
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
-
 import { PinForm } from '@/components/share/PinForm';
 import { ShareView } from '@/components/share/ShareView';
+import {
+  createDownloadToken,
+  DOWNLOAD_SCOPE_ALL,
+  downloadTokenExpiry,
+} from '@/lib/download-token';
 import { isShareExpired } from '@/lib/expire';
 import { isValidUnlockToken, unlockCookieName } from '@/lib/pin';
 import { prisma } from '@/lib/prisma';
@@ -24,13 +28,16 @@ export const dynamic = 'force-dynamic';
  */
 export default async function SharePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ route: string }>;
+  searchParams: Promise<{ download?: string }>;
 }) {
   const { route } = await params;
   if (!ROUTE_REGEX.test(route)) {
     notFound();
   }
+  const { download } = await searchParams;
 
   const now = new Date();
   const share = await prisma.share.findFirst({
@@ -93,8 +100,34 @@ export default async function SharePage({
     }
   }
 
+  // Download links carry their own proof of access, so they keep working even
+  // if the unlock cookie never makes it back (see lib/download-token.ts).
+  const validUntil = downloadTokenExpiry(share.expiresAt);
+  const downloadTokens: Record<string, string> = {
+    [DOWNLOAD_SCOPE_ALL]: createDownloadToken(
+      share.route,
+      DOWNLOAD_SCOPE_ALL,
+      validUntil,
+    ),
+  };
+  for (const file of share.files) {
+    downloadTokens[file.id] = createDownloadToken(
+      share.route,
+      file.id,
+      validUntil,
+    );
+  }
+
+  // Only resume a download that actually belongs to this share.
+  const downloadIntent =
+    download && (download === DOWNLOAD_SCOPE_ALL || download in downloadTokens)
+      ? download
+      : '';
+
   return (
     <ShareView
+      downloadTokens={downloadTokens}
+      downloadIntent={downloadIntent}
       route={share.route}
       type={share.type}
       content={share.content ?? ''}

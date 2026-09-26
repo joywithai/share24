@@ -1,5 +1,6 @@
 import { CodeViewer } from '@/components/share/CodeViewer';
 import { CopyButton } from '@/components/share/CopyButton';
+import { DownloadAutoStart } from '@/components/share/DownloadAutoStart';
 import { ExpiryCountdown } from '@/components/share/ExpiryCountdown';
 import { formatBytes } from '@/lib/file';
 
@@ -18,6 +19,16 @@ export interface ShareViewProps {
   expiresAt: string;
   /** Every file of a `file` share, in the order the author picked them. */
   files?: SharedFileMeta[];
+  /**
+   * Signed download tokens, minted because this page only renders for someone
+   * who already has access (see lib/download-token.ts).
+   */
+  downloadTokens?: Record<string, string>;
+  /**
+   * `?download=all|<fileId>` — set when a download bounced off the PIN gate.
+   * The matching link is clicked as soon as this page renders.
+   */
+  downloadIntent?: string;
 }
 
 function fileIcon(mimeType: string, size = 'h-7 w-7') {
@@ -56,6 +67,20 @@ function fileIcon(mimeType: string, size = 'h-7 w-7') {
   );
 }
 
+/** The `?k=` token that stands in for the unlock cookie on download links. */
+const ALL_FILES = 'all';
+
+function downloadHref(
+  route: string,
+  scope: string,
+  tokens: Record<string, string>,
+): string {
+  const base =
+    scope === ALL_FILES ? `/${route}/download` : `/${route}/download/${scope}`;
+  const token = tokens[scope];
+  return token ? `${base}?k=${encodeURIComponent(token)}` : base;
+}
+
 function downloadIcon(className: string) {
   return (
     <svg
@@ -84,9 +109,11 @@ function downloadIcon(className: string) {
 function SharedFileList({
   route,
   files,
+  tokens,
 }: {
   route: string;
   files: SharedFileMeta[];
+  tokens: Record<string, string>;
 }) {
   const total = files.reduce((sum, file) => sum + file.fileSize, 0);
 
@@ -107,7 +134,8 @@ function SharedFileList({
             </p>
           </div>
           <a
-            href={`/${route}/download`}
+            href={downloadHref(route, ALL_FILES, tokens)}
+            data-download-key={ALL_FILES}
             className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-soft"
           >
             {downloadIcon('h-4 w-4')}
@@ -134,7 +162,8 @@ function SharedFileList({
           </p>
         </div>
         <a
-          href={`/${route}/download`}
+          href={downloadHref(route, ALL_FILES, tokens)}
+          data-download-key={ALL_FILES}
           className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-soft"
         >
           {downloadIcon('h-4 w-4')}
@@ -160,7 +189,8 @@ function SharedFileList({
               </p>
             </div>
             <a
-              href={`/${route}/download/${file.id}`}
+              href={downloadHref(route, file.id, tokens)}
+              data-download-key={file.id}
               className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-line bg-transparent px-3 text-xs font-medium text-fg transition-colors hover:bg-card hover:border-accent/50"
             >
               {downloadIcon('h-3.5 w-3.5')}
@@ -189,11 +219,16 @@ export function ShareView({
   createdAt,
   expiresAt,
   files,
+  downloadTokens = {},
+  downloadIntent = '',
 }: ShareViewProps) {
   const created = new Date(createdAt);
 
   return (
     <div className="space-y-6">
+      {/* A download that bounced off the PIN gate resumes here. */}
+      <DownloadAutoStart scope={downloadIntent} />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="truncate font-mono text-lg font-semibold text-accent">
@@ -211,7 +246,9 @@ export function ShareView({
         <CodeViewer value={content} />
       ) : (
         files &&
-        files.length > 0 && <SharedFileList route={route} files={files} />
+        files.length > 0 && (
+          <SharedFileList route={route} files={files} tokens={downloadTokens} />
+        )
       )}
     </div>
   );

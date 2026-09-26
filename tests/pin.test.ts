@@ -74,3 +74,59 @@ describe('unlockCookieName', () => {
     expect(unlockCookieName('a_b-c9')).toBe('corium_unlock_a_b-c9');
   });
 });
+
+describe('download tokens', () => {
+  it('accepts a token minted for the same route and scope', async () => {
+    const { createDownloadToken, isValidDownloadToken, DOWNLOAD_SCOPE_ALL } =
+      await import('@/lib/download-token');
+    const token = createDownloadToken('my-route', DOWNLOAD_SCOPE_ALL);
+
+    expect(isValidDownloadToken(token, 'my-route', DOWNLOAD_SCOPE_ALL)).toBe(
+      true,
+    );
+  });
+
+  it('refuses another route, another scope, a tampered token or an expired one', async () => {
+    const { createDownloadToken, isValidDownloadToken, DOWNLOAD_SCOPE_ALL } =
+      await import('@/lib/download-token');
+    const token = createDownloadToken('my-route', DOWNLOAD_SCOPE_ALL);
+
+    expect(isValidDownloadToken(token, 'other-route', DOWNLOAD_SCOPE_ALL)).toBe(
+      false,
+    );
+    expect(isValidDownloadToken(token, 'my-route', 'file-id-123')).toBe(false);
+    expect(
+      isValidDownloadToken(`${token}x`, 'my-route', DOWNLOAD_SCOPE_ALL),
+    ).toBe(false);
+    // The payload says `dl|all|my-route|<ts>|extra` — swapping the scope inside
+    // the signed payload must fail the HMAC check.
+    const forgedPayload = Buffer.from(
+      `dl|other-file|my-route|${Date.now() + 60_000}`,
+      'utf8',
+    ).toString('base64url');
+    const mac = token.slice(token.indexOf('.') + 1);
+    expect(
+      isValidDownloadToken(`${forgedPayload}.${mac}`, 'my-route', 'other-file'),
+    ).toBe(false);
+
+    const expired = createDownloadToken(
+      'my-route',
+      DOWNLOAD_SCOPE_ALL,
+      Date.now() - 1,
+    );
+    expect(isValidDownloadToken(expired, 'my-route', DOWNLOAD_SCOPE_ALL)).toBe(
+      false,
+    );
+  });
+
+  it('never outlives the share it belongs to', async () => {
+    const { downloadTokenExpiry } = await import('@/lib/download-token');
+    const soon = new Date(Date.now() + 5 * 60_000);
+    expect(downloadTokenExpiry(soon)).toBe(soon.getTime());
+
+    const later = new Date(Date.now() + 24 * 60 * 60_000);
+    expect(downloadTokenExpiry(later)).toBeLessThanOrEqual(
+      Date.now() + 60 * 60_000 + 5,
+    );
+  });
+});
