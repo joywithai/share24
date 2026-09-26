@@ -8,6 +8,34 @@ not by which file moved.
 Base: `5a588f7` — *upload UX round* — bigger drop area, block-list upload rules
 (archives / executables / web pages / media), live route-availability check.
 
+## Supabase, and an install that builds on a fresh clone
+
+Two corrections after the fact, both about actually getting this deployed:
+
+- **The database is Supabase, not Neon.** `DEPLOYMENT.md` now walks through it
+  properly: which of the two connection strings goes where (the transaction
+  pooler on `6543` for `DATABASE_URL`, the session pooler on `5432` for
+  migrations), why both need `?sslmode=require` (node-postgres only starts TLS
+  when the URL asks for it — without it, Supabase answers
+  `no pg_hba.conf entry … SSL off`), and why the *direct*
+  `db.<ref>.supabase.co` host is not the one to use (it is IPv6-only on newer
+  projects). Plus a short "Supabase notes" section: backups, the free tier
+  pausing after a week, the transaction pooler's prepared-statement caveat, and
+  the fact that RLS guards Supabase's own REST API rather than this app, which
+  connects as the `postgres` role.
+- **A fresh clone now builds.** `generated/prisma` is git-ignored and nothing
+  generated it, so `npm install && npm run build` — what Vercel, CI and any
+  Dockerfile do — failed with `DATABASE_URL is not set` before it ever reached
+  the database. A new `postinstall` hook generates the client with a
+  placeholder URL when the environment has none (it does not connect), and
+  steps aside when the Prisma CLI is not installed. Both paths are tested, as
+  is the production build itself.
+- The build-needs-`DATABASE_URL` behaviour is now documented rather than
+  discovered: an environment variable has to exist wherever `npm run build`
+  runs, because the client is imported while page data is collected.
+- The Docker sketch reflects it too (`npm ci --ignore-scripts`, generate after
+  `COPY`, `--build-arg DATABASE_URL`).
+
 ## Phase 5 — Finding things, and the paperwork
 
 - **Global search** (`/admin/search`, and a box in the panel header): one term
@@ -17,7 +45,7 @@ Base: `5a588f7` — *upload UX round* — bigger drop area, block-list upload ru
   capped — the point is to orient somebody, not to export the database. Tested
   against a mocked Prisma (term handling, escaping, caps, expired-first
   labelling).
-- **`DEPLOYMENT.md`**: the 20-minute Vercel + Neon + R2 route with the exact
+- **`DEPLOYMENT.md`**: the 20-minute Vercel + Supabase + R2 route with the exact
   variable table, self-hosting on a VPS with the two proxy details that
   actually matter (forward the client address; decide about framing), Docker
   sketch, backups that work (rows and bytes together), the cleanup table, the

@@ -8,7 +8,7 @@
  *  - creates the `corium` database on first run
  *  - applies prisma/migrations/*.sql when the schema is not present yet
  *
- * Production uses a managed PostgreSQL (e.g. Neon) — this script is only a
+ * Production uses a managed PostgreSQL (e.g. Supabase) — this script is only a
  * local-development convenience so the app can run anywhere, including
  * offline sandboxes.
  */

@@ -9,35 +9,56 @@ the pieces below when you need them.
 
 ---
 
-## 1. The 20-minute version (Vercel + Neon + R2)
+## 1. The 20-minute version (Vercel + Supabase + R2)
 
 | Piece | Why | Where |
 | ----- | --- | ----- |
-| **Neon** (or any Postgres) | The database. Serverless Postgres keeps a Vercel deployment honest. | [neon.tech](https://neon.tech) |
+| **Supabase** (or any Postgres) | The database. | [supabase.com](https://supabase.com) |
 | **Cloudflare R2** | Files. Vercel's disk is ephemeral — uploads must not live there. | Cloudflare dashboard → R2 |
 | **Vercel** | Hosting, and the cron that runs the cleanup job. | [vercel.com](https://vercel.com) |
 | **Upstash Redis** (optional) | Rate-limit counters shared across instances. Without it, limits are per-instance. | [upstash.com](https://upstash.com) |
 
 ### Steps
 
-1. **Database.** Create a Neon project, copy the connection string. Run the
-   migrations against it:
-   ```bash
-   DATABASE_URL="postgres://…" node scripts/db.mjs --migrate-only   # if you only want schema
-   ```
-   In practice the simplest route is to point `DATABASE_URL` at Neon in a local
-   `.env` and run `npm run db:dev` once — the script applies every migration,
-   including on a fresh database — then start the app normally.
+1. **Database.** Create a Supabase project (region nearest your users; keep the
+   database password). Then open **Connect** in the dashboard and copy *two*
+   connection strings out of it:
 
-2. **Bucket.** Create the R2 bucket, then an API token with **Object Read &
+   | Which | Where it points | Used for |
+   | ----- | --------------- | -------- |
+   | **Transaction pooler** | `aws-0-<region>.pooler.supabase.com:6543`, user `postgres.<project-ref>` | `DATABASE_URL` in production — serverless-friendly and IPv4 |
+   | **Session pooler** | the same pooler host, port `5432` | migrations, which need a real session |
+
+   **Append `?sslmode=require` to both.** Supabase refuses unencrypted
+   connections, and node-postgres (the driver under Prisma here) only turns TLS
+   on when the URL asks for it — without the parameter you get
+   `no pg_hba.conf entry … SSL off`.
+
+   > The **direct** connection (`db.<project-ref>.supabase.co:5432`) is IPv6-only
+   > on newer Supabase projects, and plenty of networks still have no IPv6. The
+   > pooler is the IPv4 way in, which is why both strings above come from it.
+
+2. **Schema.** Apply the migrations once, to the empty project, with the
+   **session** string:
+   ```bash
+   DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require" \
+     npx prisma migrate deploy
+   ```
+   One runner per database: this applies the SQL in `prisma/migrations/` and
+   records it in Prisma's own `_prisma_migrations` table. The local
+   `npm run db:dev` keeps a separate ledger (`_migrations`) and re-applies
+   anything missing from it, so do not point it at a database you migrated
+   this way.
+
+3. **Bucket.** Create the R2 bucket, then an API token with **Object Read &
    Write** on that bucket. Note the account id, the key id and the secret.
 
-3. **Deploy.** Push the repository to GitHub, import it in Vercel. Set the
+4. **Deploy.** Push the repository to GitHub, import it in Vercel. Set the
    environment variables:
 
    | Variable | Value |
    | -------- | ----- |
-   | `DATABASE_URL` | Neon connection string (keep `?sslmode=require`) |
+   | `DATABASE_URL` | the Supabase **transaction pooler** URI, with `?sslmode=require` |
    | `BETTER_AUTH_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
    | `UNLOCK_SECRET` | another random hex string |
    | `NEXT_PUBLIC_APP_URL` | `https://your-domain.com` |
@@ -47,9 +68,11 @@ the pieces below when you need them.
    | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | from Upstash (optional) |
 
    Do **not** set `CORIUM_UPLOADS_DIR` in production; with `STORAGE_TYPE=R2`
-   nothing new is written to the disk.
+   nothing new is written to the disk. Set these **before the first deploy**:
+   the build imports the Prisma client while collecting page data, so a build
+   without `DATABASE_URL` fails with `DATABASE_URL is not set`.
 
-4. **Cron.** `vercel.json` already schedules hourly cleanup. As long as
+5. **Cron.** `vercel.json` already schedules hourly cleanup. As long as
    `CRON_SECRET` is set, Vercel authenticates the call itself. Other schedulers
    (cron-job.org, GitHub Actions, a crontab) can do the same:
    ```bash
@@ -57,14 +80,14 @@ the pieces below when you need them.
      -H "Authorization: Bearer $CRON_SECRET"
    ```
 
-5. **Admin account.** Sign up normally, then make yourself an admin:
+6. **Admin account.** Sign up normally, then make yourself an admin:
    ```sql
    UPDATE "User" SET role = 'admin' WHERE email = 'you@example.com';
    ```
    `/admin` then opens. (Locally, `npm run db:seed` creates
    `admin@sharetofnd.dev / admin123` — never leave that account in production.)
 
-6. **Smoke test** — five things, in this order:
+7. **Smoke test** — five things, in this order:
    ```
    /                     → the create buttons
    /create/file          → upload two files, get a link
@@ -73,16 +96,36 @@ the pieces below when you need them.
    /admin                → the panel, with a file count
    ```
 
+### Supabase notes
+
+- **Backups.** Supabase takes daily backups on paid plans; on the free plan take
+  your own (`pg_dump "<session uri>" > backup.sql`) — and remember the file
+  bytes have to travel with them (§3).
+- **Free projects pause** after about a week with no activity. A paused project
+  refuses connections until you resume it in the dashboard; the app errors
+  until then and nothing is lost.
+- **Connection pooling** is the reason for the two strings above. Supavisor's
+  transaction mode shares a handful of Postgres connections between all your
+  functions. This app's Prisma client talks to Postgres through node-postgres
+  with unnamed prepared statements, which the transaction pooler supports as
+  is; a tool that uses Prisma's classic query engine instead would need
+  `?pgbouncer=true` appended.
+- **Row-level security** guards Supabase's REST/anon-key API, not this app: the
+  app connects as the `postgres` role over plain Postgres, and never carries an
+  anon key. If you publish that project's anon key somewhere else, enable RLS
+  with no policies on the app's tables — the owner role the app uses is not
+  restricted by it.
+
 ---
 
 ## 2. Self-hosting (Docker, a VPS, a Raspberry Pi)
 
 ```bash
 git clone <repo> && cd share24
-npm install
+npm install                  # postinstall generates the Prisma client
 cp .env.example .env         # fill in DATABASE_URL + the two secrets
 npm run db:dev               # or point DATABASE_URL at your own Postgres
-npm run build
+npm run build                # needs DATABASE_URL in the environment
 npm run start                # listens on 0.0.0.0:3000
 ```
 
@@ -109,12 +152,23 @@ npm run start                # listens on 0.0.0.0:3000
 FROM node:22-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# The source (and scripts/postinstall.mjs) is not in the image yet, so install
+# dependencies without hooks and generate the client after COPY.
+RUN npm ci --ignore-scripts
 COPY . .
-RUN npm run build
+# `next build` imports the Prisma client while collecting page data, so the
+# connection string must exist at build time — it is not used to connect.
+ARG DATABASE_URL
+ENV DATABASE_URL=$DATABASE_URL
+RUN npm run db:generate && npm run build
 ENV NODE_ENV=production PORT=3000
 EXPOSE 3000
 CMD ["npm", "run", "start"]
+```
+
+```bash
+docker build --build-arg DATABASE_URL="$DATABASE_URL" -t share24 .
+docker run -p 3000:3000 --env-file .env -v "$PWD/.uploads:/app/.uploads" share24
 ```
 
 Mount two volumes: `/app/.uploads` (or leave it out with `STORAGE_TYPE=R2`) and
