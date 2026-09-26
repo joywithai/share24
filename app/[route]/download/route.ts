@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 
+import { downloadFailure } from '@/lib/download-error';
 import { DOWNLOAD_SCOPE_ALL } from '@/lib/download-token';
 import { authorizeDownload } from '@/lib/downloads';
-import { resolveStoredPath } from '@/lib/storage';
+import { keepAvailable, resolveStoredPath } from '@/lib/storage';
 import { safeEntryName, zipStream } from '@/lib/zip';
 
 export const dynamic = 'force-dynamic';
@@ -26,16 +27,24 @@ export async function GET(
   });
   if (!access.ok) return access.response;
 
+  // Metadata can outlive the bytes (a wiped uploads folder, an ephemeral disk),
+  // so only the files that are really there go into the answer: a ZIP of what
+  // is left beats a corrupt archive, and nothing left is an explained page.
+  const present = await keepAvailable(access.files);
+  if (present.length === 0) {
+    return downloadFailure('files-gone', {
+      route: access.route,
+      missing: access.files.length,
+    });
+  }
+
   // Never trust the stored paths — each must resolve inside the uploads root.
-  const resolved = access.files.map((file) => ({
+  const resolved = present.map((file) => ({
     file,
     absolute: resolveStoredPath(file.storedPath),
   }));
   if (resolved.some((entry) => entry.absolute === null)) {
-    return new Response('Invalid file reference.', {
-      status: 500,
-      headers: { 'Cache-Control': 'no-store' },
-    });
+    return downloadFailure('corrupt', { route: access.route });
   }
 
   if (resolved.length === 1) {
@@ -44,7 +53,7 @@ export async function GET(
     try {
       data = await readFile(absolute as string);
     } catch {
-      return missingFromDisk();
+      return missingFromDisk(access.route);
     }
     return new Response(new Uint8Array(data), {
       status: 200,
@@ -78,9 +87,6 @@ export async function GET(
   );
 }
 
-function missingFromDisk(): Response {
-  return new Response(
-    'The file is no longer available on this server. V1 stores uploads on the local filesystem, which can be ephemeral (e.g. /tmp on Vercel).',
-    { status: 410, headers: { 'Cache-Control': 'no-store' } },
-  );
+function missingFromDisk(route: string): Response {
+  return downloadFailure('file-gone', { route });
 }

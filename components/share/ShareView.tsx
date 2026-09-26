@@ -3,6 +3,7 @@ import { CopyButton } from '@/components/share/CopyButton';
 import { DownloadAutoStart } from '@/components/share/DownloadAutoStart';
 import { DownloadLink } from '@/components/share/DownloadLink';
 import { ExpiryCountdown } from '@/components/share/ExpiryCountdown';
+import { PreviewDownloadHint } from '@/components/share/PreviewDownloadHint';
 import { formatBytes } from '@/lib/file';
 
 export interface SharedFileMeta {
@@ -10,6 +11,12 @@ export interface SharedFileMeta {
   fileName: string;
   fileSize: number;
   mimeType: string;
+  /**
+   * `false` when the bytes are already gone from the server (the row survived
+   * a wiped uploads folder). The list then says so instead of offering a
+   * button that ends on an error page. Undefined means "assume it is there".
+   */
+  available?: boolean;
 }
 
 export interface ShareViewProps {
@@ -102,6 +109,53 @@ function downloadIcon(className: string) {
 }
 
 /**
+ * Nothing left to hand over: every file of the share was removed from the disk
+ * before the share itself expired. Says so plainly and offers the way out.
+ */
+function GonePanel({ route, count }: { route: string; count: number }) {
+  return (
+    <div
+      data-testid="files-gone-panel"
+      className="rounded-xl border border-line bg-card p-6 text-center"
+    >
+      <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-danger/10 text-danger">
+        <svg
+          aria-hidden
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-6 w-6"
+        >
+          <path d="M12 8v5" />
+          <path d="M12 16.5h.01" />
+          <path d="M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+        </svg>
+      </span>
+      <h2 className="mt-4 text-base font-semibold">
+        {count === 1
+          ? 'This file is no longer on the server'
+          : 'These files are no longer on the server'}
+      </h2>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-sub">
+        The share <span className="font-mono text-fg">/{route}</span> still
+        exists, but its {count === 1 ? 'file was' : `${count} files were`}{' '}
+        removed from disk before the 24 hours ran out — uploads are stored on
+        this server, and a restart can empty that storage.
+      </p>
+      <a
+        href="/create/file"
+        className="mt-5 inline-flex h-10 items-center justify-center rounded-md bg-accent px-4 text-sm font-medium text-white transition-colors hover:bg-accent-soft"
+      >
+        Share files again
+      </a>
+    </div>
+  );
+}
+
+/**
  * The files of a share: one row each (download it on its own) plus a ZIP of the
  * whole set when there is more than one. A single file keeps the plain
  * "Download" button it always had — and the same `/<route>/download` URL, so
@@ -117,9 +171,20 @@ function SharedFileList({
   tokens: Record<string, string>;
 }) {
   const total = files.reduce((sum, file) => sum + file.fileSize, 0);
+  const available = files.filter((file) => file.available !== false);
+  const missingCount = files.length - available.length;
+
+  // Nothing left on disk: no ZIP button, no rows of dead links — just the
+  // reason and a way to start over.
+  if (available.length === 0) {
+    return <GonePanel route={route} count={files.length} />;
+  }
 
   if (files.length === 1) {
     const [file] = files;
+    if (file.available === false) {
+      return <GonePanel route={route} count={1} />;
+    }
     return (
       <div className="rounded-xl border border-line bg-card p-6">
         <div className="flex flex-wrap items-center gap-4">
@@ -147,6 +212,7 @@ function SharedFileList({
           Files are stored on this server and vanish with the share — download
           them before the countdown ends.
         </p>
+        <PreviewDownloadHint />
       </div>
     );
   }
@@ -159,7 +225,9 @@ function SharedFileList({
             {files.length} files · {formatBytes(total)}
           </p>
           <p className="mt-0.5 text-xs text-sub">
-            Take them one by one, or grab the whole set in one ZIP.
+            {missingCount > 0
+              ? `${missingCount} of ${files.length} files are already gone from the server.`
+              : 'Take them one by one, or grab the whole set in one ZIP.'}
           </p>
         </div>
         <DownloadLink
@@ -168,7 +236,9 @@ function SharedFileList({
           className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-soft"
         >
           {downloadIcon('h-4 w-4')}
-          Download all (.zip)
+          {missingCount > 0
+            ? 'Download the rest (.zip)'
+            : 'Download all (.zip)'}
         </DownloadLink>
       </div>
 
@@ -182,29 +252,60 @@ function SharedFileList({
               {fileIcon(file.mimeType, 'h-5 w-5')}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium" title={file.fileName}>
-                {file.fileName}
-              </p>
+              {file.available === false ? (
+                <p
+                  className="truncate text-sm font-medium text-sub"
+                  title={file.fileName}
+                >
+                  {file.fileName}
+                </p>
+              ) : (
+                /* The name is the obvious thing to click — let it download
+                   the file as well, instead of doing nothing at all. */
+                <DownloadLink
+                  href={downloadHref(route, file.id, tokens)}
+                  downloadKey={file.id}
+                  title={file.fileName}
+                  className="block truncate text-sm font-medium transition-colors hover:text-accent hover:underline"
+                >
+                  {file.fileName}
+                </DownloadLink>
+              )}
               <p className="text-xs text-sub">
                 {formatBytes(file.fileSize)} · {file.mimeType}
+                {file.available === false && (
+                  <span className="text-danger">
+                    {' '}
+                    · no longer on the server
+                  </span>
+                )}
               </p>
             </div>
-            <DownloadLink
-              href={downloadHref(route, file.id, tokens)}
-              downloadKey={file.id}
-              className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-line bg-transparent px-3 text-xs font-medium text-fg transition-colors hover:bg-card hover:border-accent/50"
-            >
-              {downloadIcon('h-3.5 w-3.5')}
-              Download
-            </DownloadLink>
+            {file.available === false ? (
+              <span className="inline-flex h-9 shrink-0 items-center rounded-md border border-line/60 px-3 text-xs font-medium text-sub/60">
+                Gone
+              </span>
+            ) : (
+              <DownloadLink
+                href={downloadHref(route, file.id, tokens)}
+                downloadKey={file.id}
+                className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-line bg-transparent px-3 text-xs font-medium text-fg transition-colors hover:bg-card hover:border-accent/50"
+              >
+                {downloadIcon('h-3.5 w-3.5')}
+                Download
+              </DownloadLink>
+            )}
           </li>
         ))}
       </ul>
 
-      <p className="border-t border-line p-4 text-xs text-sub/70">
-        Files are stored on this server and vanish with the share — download
-        them before the countdown ends.
-      </p>
+      <div className="border-t border-line p-4">
+        <p className="text-xs text-sub/70">
+          Files are stored on this server and vanish with the share — download
+          them before the countdown ends.
+        </p>
+        <PreviewDownloadHint />
+      </div>
     </div>
   );
 }

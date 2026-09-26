@@ -1,3 +1,4 @@
+import { downloadFailure } from '@/lib/download-error';
 import { type DownloadScope, isValidDownloadToken } from '@/lib/download-token';
 import { isShareExpired } from '@/lib/expire';
 import {
@@ -29,13 +30,6 @@ export type DownloadAccess =
   | { ok: true; route: string; files: DownloadableFile[] }
   | { ok: false; response: Response };
 
-function gone(message: string, status = 410): Response {
-  return new Response(message, {
-    status,
-    headers: { 'Cache-Control': 'no-store' },
-  });
-}
-
 export async function authorizeDownload(
   request: Request,
   route: string,
@@ -48,7 +42,7 @@ export async function authorizeDownload(
   });
 
   if (!share || isShareExpired(share)) {
-    return { ok: false, response: gone('This share no longer exists.') };
+    return { ok: false, response: downloadFailure('share-gone', { route }) };
   }
 
   if (share.pinHash) {
@@ -87,10 +81,7 @@ export async function authorizeDownload(
   }
 
   if (share.files.length === 0) {
-    return {
-      ok: false,
-      response: gone('File metadata is missing for this share.', 500),
-    };
+    return { ok: false, response: downloadFailure('corrupt', { route }) };
   }
 
   return { ok: true, route: share.route, files: share.files };

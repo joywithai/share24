@@ -28,6 +28,14 @@ something to share → no signup, no forms → paste it + pick a route → link
   No database involved, and nothing is sent anywhere
 - **Optional 4-digit PIN** — bcrypt-hashed; unlocking mints a short-lived,
   HMAC-signed cookie for that route (creator auto-unlocks on creation)
+- **Downloads that explain themselves** — the file *name* in a list is a
+  download link too (not just the buttons); before answering, the download
+  routes check the bytes are still on disk, so a folder wipe cannot hand out a
+  0-byte archive. Whatever is left is what a ZIP contains, and a failure
+  renders a small page with the reason and two ways out (share again / go
+  home) instead of a bare sentence. Inside an embedded preview the page also
+  says how to get the file out when the surrounding sandbox swallows the
+  click
 - **24-hour expiry** — lazy evaluation on access; `isExpired` flag flipped
   opportunistically (no cron)
 - **Anonymous or signed in** — Better Auth (email + password); `/profile`
@@ -110,7 +118,7 @@ the schema with `npx prisma migrate deploy` (the migration SQL lives in
 | `DATABASE_URL`       | yes      | PostgreSQL connection string (embedded dev default in `.env.example`) |
 | `BETTER_AUTH_SECRET` | yes      | Random 32+ byte hex — session cookies, unlock-token HMAC |
 | `NEXT_PUBLIC_APP_URL`| prod     | Public URL; Better Auth cookie scoping. Leave empty locally |
-| `CORIUM_UPLOADS_DIR` | no       | Upload storage root, default `/tmp/corium-uploads` |
+| `CORIUM_UPLOADS_DIR` | no       | Upload storage root, default `/tmp/corium-uploads` (dev bootstrap uses `./.uploads`) |
 | `UNLOCK_SECRET`      | no       | Separate HMAC secret for PIN unlock cookies; falls back to `BETTER_AUTH_SECRET` |
 | `CORIUM_ALLOWED_ORIGINS` | no   | Comma-separated public origins allowed to post Server Actions when a reverse proxy rewrites `Host` (wildcards ok, e.g. `*.example.app`) |
 | `CORIUM_TRUSTED_ORIGINS` | no   | Comma-separated extra origins accepted by Better Auth's CSRF check |

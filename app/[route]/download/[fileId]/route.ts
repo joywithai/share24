@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 
+import { downloadFailure } from '@/lib/download-error';
 import { authorizeDownload } from '@/lib/downloads';
 import { resolveStoredPath } from '@/lib/storage';
 
@@ -25,28 +26,19 @@ export async function GET(
 
   const file = access.files.find((entry) => entry.id === fileId);
   if (!file) {
-    return new Response('That file is not part of this share.', {
-      status: 404,
-      headers: { 'Cache-Control': 'no-store' },
-    });
+    return downloadFailure('not-part-of-share', { route: access.route });
   }
 
   const absolute = resolveStoredPath(file.storedPath);
   if (!absolute) {
-    return new Response('Invalid file reference.', {
-      status: 500,
-      headers: { 'Cache-Control': 'no-store' },
-    });
+    return downloadFailure('corrupt', { route: access.route });
   }
 
   let data: Buffer;
   try {
     data = await readFile(absolute);
   } catch {
-    return new Response(
-      'The file is no longer available on this server. V1 stores uploads on the local filesystem, which can be ephemeral (e.g. /tmp on Vercel).',
-      { status: 410, headers: { 'Cache-Control': 'no-store' } },
-    );
+    return downloadFailure('file-gone', { route: access.route });
   }
 
   return new Response(new Uint8Array(data), {

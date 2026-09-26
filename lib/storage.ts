@@ -30,6 +30,24 @@ export function resolveStoredPath(relative: string): string | null {
   return absolute;
 }
 
+/**
+ * The entries whose bytes are still on disk, in the order they were given.
+ *
+ * This fails the other way round from an expired share: the metadata is in the
+ * database while the disk (a wiped container, a `/tmp` uploads root) is empty.
+ * Checking before answering a download means a visitor gets an explained page
+ * instead of a 0-byte archive — or a corrupt one.
+ */
+export async function keepAvailable<T extends { storedPath: string }>(
+  entries: T[],
+  exists: (relative: string) => Promise<boolean> = storedFileExists,
+): Promise<T[]> {
+  const present = await Promise.all(
+    entries.map((entry) => exists(entry.storedPath)),
+  );
+  return entries.filter((_, index) => present[index]);
+}
+
 export async function storedFileExists(relative: string): Promise<boolean> {
   const absolute = resolveStoredPath(relative);
   if (!absolute) return false;

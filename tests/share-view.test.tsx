@@ -2,6 +2,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { PreviewDownloadHint } from '@/components/share/PreviewDownloadHint';
 import { ShareView } from '@/components/share/ShareView';
 
 afterEach(cleanup);
@@ -207,5 +208,100 @@ describe('DownloadLink', () => {
     } finally {
       if (topDescriptor) Object.defineProperty(window, 'top', topDescriptor);
     }
+  });
+});
+
+describe('ShareView — files that are gone from the server', () => {
+  const goneFile = { ...twoFiles[0], available: false };
+
+  it('marks a missing file instead of offering a dead download button', () => {
+    render(<ShareView {...base} files={[goneFile, twoFiles[1]]} />);
+
+    expect(screen.getByText(/no longer on the server/)).toBeTruthy();
+    expect(screen.getByText('Gone')).toBeTruthy();
+
+    const links = screen
+      .getAllByRole('link')
+      .map((link) => link.getAttribute('href'));
+    expect(links).not.toContain('/my-set/download/f1');
+    // The file that is still there keeps its button and its ZIP.
+    expect(links).toContain('/my-set/download/f2');
+    expect(links).toContain('/my-set/download');
+    expect(screen.getByText('Download the rest (.zip)')).toBeTruthy();
+  });
+
+  it('explains itself when every file is gone, with no download left', () => {
+    render(
+      <ShareView
+        {...base}
+        files={[goneFile, { ...twoFiles[1], available: false }]}
+      />,
+    );
+
+    expect(
+      screen.getByText('These files are no longer on the server'),
+    ).toBeTruthy();
+    const panel = screen.getByTestId('files-gone-panel');
+    expect(panel.textContent).toContain('/my-set');
+    expect(panel.textContent).toContain('2 files were');
+    expect(screen.queryAllByRole('link')).toHaveLength(1);
+    expect(screen.getByRole('link').getAttribute('href')).toBe('/create/file');
+    expect(screen.queryByText('Download all (.zip)')).toBeNull();
+  });
+
+  it('keeps the single-file shape honest for one missing file', () => {
+    render(<ShareView {...base} files={[goneFile]} />);
+
+    expect(
+      screen.getByText('This file is no longer on the server'),
+    ).toBeTruthy();
+    expect(screen.queryByText('Download')).toBeNull();
+  });
+});
+
+describe('PreviewDownloadHint', () => {
+  it('stays out of the way when the page is on top', async () => {
+    render(<PreviewDownloadHint />);
+    await waitFor(() =>
+      expect(screen.queryByText(/Open link in new tab/)).toBeNull(),
+    );
+  });
+
+  it('tells the visitor what to do inside a preview frame', async () => {
+    // jsdom reports `window.top === window`; pretend the page is embedded.
+    const top = window.top;
+    Object.defineProperty(window, 'top', {
+      configurable: true,
+      get: () => ({}) as Window,
+    });
+    try {
+      render(<PreviewDownloadHint />);
+      await waitFor(() =>
+        expect(screen.getByText(/Open link in new tab/)).toBeTruthy(),
+      );
+    } finally {
+      Object.defineProperty(window, 'top', { configurable: true, value: top });
+    }
+  });
+});
+
+describe('ShareView — clicking a file name', () => {
+  it('downloads that file, instead of doing nothing', () => {
+    render(<ShareView {...base} files={twoFiles} />);
+
+    const nameLink = screen.getByTitle('alpha.txt');
+    expect(nameLink.getAttribute('href')).toBe('/my-set/download/f1');
+    expect(nameLink.getAttribute('data-download-key')).toBe('f1');
+  });
+
+  it('leaves a missing file unclickable', () => {
+    render(
+      <ShareView
+        {...base}
+        files={[{ ...twoFiles[0], available: false }, twoFiles[1]]}
+      />,
+    );
+
+    expect(screen.getByTitle('alpha.txt').tagName).toBe('P');
   });
 });

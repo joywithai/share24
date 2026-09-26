@@ -13,7 +13,7 @@ open('.env','w').write(f'''DATABASE_URL="postgresql://postgres:postgres@127.0.0.
 BETTER_AUTH_SECRET="{secrets.token_hex(32)}"
 UNLOCK_SECRET="{secrets.token_hex(32)}"
 NEXT_PUBLIC_APP_URL=""
-CORIUM_UPLOADS_DIR="/tmp/corium-uploads"
+CORIUM_UPLOADS_DIR="./.uploads"
 CORIUM_ALLOWED_ORIGINS="https://*.arena.site,https://*.e2b.app"
 CORIUM_TRUSTED_ORIGINS="https://*.arena.site,https://*.e2b.app"
 ''')
@@ -24,5 +24,7 @@ else
 fi
 
 [ -d node_modules ] || { echo '[bootstrap] npm install…'; npm install --no-audit --no-fund; }
+# Uploads live in the project (not /tmp) so a restart cannot empty them.
+mkdir -p .uploads && echo '[bootstrap] uploads dir ok'
 npm run db:generate >/dev/null && echo '[bootstrap] prisma client ok'
 npm run db:seed 2>&1 | tail -3

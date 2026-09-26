@@ -11,6 +11,7 @@ import { isShareExpired } from '@/lib/expire';
 import { isValidUnlockToken, unlockCookieName } from '@/lib/pin';
 import { prisma } from '@/lib/prisma';
 import { ROUTE_REGEX } from '@/lib/route';
+import { storedFileExists } from '@/lib/storage';
 
 // Share data changes (new shares, lazy expiry) — never prerender this route.
 export const dynamic = 'force-dynamic';
@@ -124,6 +125,18 @@ export default async function SharePage({
       ? download
       : '';
 
+  // Mark files whose bytes are already gone (a wiped uploads folder) so the
+  // list can say so instead of offering a button that ends on an error page.
+  const files = await Promise.all(
+    share.files.map(async (file) => ({
+      id: file.id,
+      fileName: file.fileName,
+      fileSize: file.fileSize,
+      mimeType: file.mimeType,
+      available: await storedFileExists(file.storedPath),
+    })),
+  );
+
   return (
     <ShareView
       downloadTokens={downloadTokens}
@@ -133,12 +146,7 @@ export default async function SharePage({
       content={share.content ?? ''}
       createdAt={share.createdAt.toISOString()}
       expiresAt={share.expiresAt.toISOString()}
-      files={share.files.map((file) => ({
-        id: file.id,
-        fileName: file.fileName,
-        fileSize: file.fileSize,
-        mimeType: file.mimeType,
-      }))}
+      files={files}
     />
   );
 }
