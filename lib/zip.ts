@@ -35,11 +35,32 @@ export function crc32(data: Uint8Array): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
+/**
+ * Where one entry's bytes come from. Local shares hand over a path (read one
+ * file at a time as the archive streams); anything remote hands over a lazy
+ * loader, so the provider is asked for the bytes while the archive is being
+ * written instead of loading a whole share into memory first.
+ */
+export type ZipSource =
+  | { kind: 'path'; path: string }
+  | { kind: 'remote'; load: () => Promise<Uint8Array | null> };
+
 export interface ZipEntry {
   /** Name inside the archive (path separators are stripped). */
   name: string;
-  /** Absolute path on disk to read the bytes from. */
-  path: string;
+  source: ZipSource;
+}
+
+/**
+ * Thrown when a remote entry turns out to be gone *while* the archive is being
+ * built. The caller filters missing files out before starting, so this is the
+ * race that is left: the stream ends in an error rather than a corrupt archive.
+ */
+export class ZipSourceMissingError extends Error {
+  constructor(readonly entryName: string) {
+    super(`Zip entry "${entryName}" disappeared while the archive was built`);
+    this.name = 'ZipSourceMissingError';
+  }
 }
 
 /** Zip stores MS-DOS date/time: seconds are 2-second steps, years start 1980. */
@@ -101,6 +122,17 @@ function u32(value: number): Buffer {
   return buffer;
 }
 
+/** One entry's bytes, however they are stored. */
+async function readEntry(
+  source: ZipSource,
+  entryName: string,
+): Promise<Buffer> {
+  if (source.kind === 'path') return readFile(source.path);
+  const bytes = await source.load();
+  if (!bytes) throw new ZipSourceMissingError(entryName);
+  return Buffer.from(bytes);
+}
+
 /**
  * Builds the archive lazily — one entry per `next()` call — so the ReadableStream
  * below can hand the browser bytes while the remaining files are still on disk.
@@ -117,15 +149,18 @@ async function* buildArchive(
       uniqueName(safeEntryName(entry.name), takenNames),
       'utf8',
     );
-    const data = await readFile(entry.path);
+    const data = await readEntry(entry.source, entry.name);
     const compressed = await new Promise<Buffer>((resolve, reject) => {
       deflateRaw(data, { level: 6 }, (error, result) =>
         error ? reject(error) : resolve(result),
       );
     });
 
-    const { mtime } = await stat(entry.path);
-    const { time, date } = dosDateTime(mtime);
+    const modifiedAt =
+      entry.source.kind === 'path'
+        ? (await stat(entry.source.path)).mtime
+        : new Date();
+    const { time, date } = dosDateTime(modifiedAt);
     const crc = crc32(data);
 
     // Local file header: no data descriptor, so sizes and CRC go in up front.

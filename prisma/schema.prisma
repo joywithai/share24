@@ -81,6 +81,13 @@ enum ShareType {
   file
 }
 
+/// Where the bytes of a share file live. V1 wrote everything to the local
+/// disk; R2 keeps the same code path but the objects go to Cloudflare.
+enum StorageType {
+  LOCAL
+  R2
+}
+
 model Share {
   id        String    @id @default(cuid())
   type      ShareType
@@ -115,7 +122,17 @@ model ShareFile {
   shareId  String
   share    Share    @relation(fields: [shareId], references: [id], onDelete: Cascade)
   /// Path relative to the uploads root: `<shareId>/<n>-<name>`.
+  /// For `R2` rows this mirrors the object key, so "where are the bytes" is
+  /// always answerable from one column.
   storedPath String
+  /// Which storage provider owns these bytes. Rows created before the
+  /// storage switch keep `LOCAL` and keep working.
+  storageType StorageType @default(LOCAL)
+  /// Object key inside the bucket (R2 rows only).
+  r2Key String?
+  /// Bucket the object was written to (R2 rows only) — kept per row so a
+  /// future bucket change cannot orphan old files.
+  r2Bucket String?
   /// The name the file had on the author's device — used in the download
   /// header and as the entry name inside the ZIP.
   fileName String
@@ -126,4 +143,16 @@ model ShareFile {
   createdAt DateTime @default(now())
 
   @@index([shareId, position])
+}
+
+/// Small key/value table for runtime settings an admin can change without a
+/// deploy (maintenance mode, retention windows, …). Values are strings; the
+/// reader decides how to interpret them.
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

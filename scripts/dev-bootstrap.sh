@@ -14,6 +14,7 @@ BETTER_AUTH_SECRET="{secrets.token_hex(32)}"
 UNLOCK_SECRET="{secrets.token_hex(32)}"
 NEXT_PUBLIC_APP_URL=""
 CORIUM_UPLOADS_DIR="./.uploads"
+STORAGE_TYPE="LOCAL"
 CORIUM_ALLOWED_ORIGINS="https://*.arena.site,https://*.e2b.app"
 CORIUM_TRUSTED_ORIGINS="https://*.arena.site,https://*.e2b.app"
 ''')

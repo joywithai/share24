@@ -111,7 +111,7 @@ the schema with `npx prisma migrate deploy` (the migration SQL lives in
 | `npm run db:dev`      | Start embedded PostgreSQL + apply migrations (dev)        |
 | `npm run db:generate` | Generate the Prisma client (offline-safe wrapper)         |
 | `npm run db:seed`     | Demo user + sample shares (active code, active file, expired) |
-| `npm test`            | Vitest: unit + component + server-action tests (155)      |
+| `npm test`            | Vitest: unit + component + server-action tests (187)      |
 | `npm run e2e`         | Playwright: the 3 critical flows (needs `npx playwright install chromium`) |
 | `npm run lint`        | Biome check                                               |
 
@@ -122,7 +122,12 @@ the schema with `npx prisma migrate deploy` (the migration SQL lives in
 | `DATABASE_URL`       | yes      | PostgreSQL connection string (embedded dev default in `.env.example`) |
 | `BETTER_AUTH_SECRET` | yes      | Random 32+ byte hex — session cookies, unlock-token HMAC |
 | `NEXT_PUBLIC_APP_URL`| prod     | Public URL; Better Auth cookie scoping. Leave empty locally |
-| `CORIUM_UPLOADS_DIR` | no       | Upload storage root, default `/tmp/corium-uploads` (dev bootstrap uses `./.uploads`) |
+| `CORIUM_UPLOADS_DIR` | no       | Upload storage root for `LOCAL`, default `/tmp/corium-uploads` (dev bootstrap uses `./.uploads`) |
+| `STORAGE_TYPE`       | no       | Where **new** uploads go: `LOCAL` (default) or `R2`. Existing shares keep their own storage |
+| `R2_ACCOUNT_ID`      | R2       | Cloudflare account id — the endpoint becomes `https://<id>.r2.cloudflarestorage.com` |
+| `R2_ACCESS_KEY_ID`   | R2       | R2 API token (Object Read & Write on the bucket) |
+| `R2_SECRET_ACCESS_KEY` | R2     | The token's secret |
+| `R2_BUCKET_NAME`     | R2       | Bucket that holds the uploaded objects |
 | `UNLOCK_SECRET`      | no       | Separate HMAC secret for PIN unlock cookies; falls back to `BETTER_AUTH_SECRET` |
 | `CORIUM_ALLOWED_ORIGINS` | no   | Comma-separated public origins allowed to post Server Actions when a reverse proxy rewrites `Host` (wildcards ok, e.g. `*.example.app`) |
 | `CORIUM_TRUSTED_ORIGINS` | no   | Comma-separated extra origins accepted by Better Auth's CSRF check |
@@ -187,12 +192,23 @@ On every access the page checks **both** `isExpired` and `expiresAt <= now`.
 If the timestamp has passed, the flag is flipped in the same request and the
 expired panel renders.
 
-### File storage (V1)
+### File storage (providers)
 
-`<uploads root>/<shareId>/<n>-<sanitized name>` — the directory name is a
-server-side random UUID and the file name is stripped of path separators and
-unusual characters, never taken from user input as-is; both download handlers
-re-resolve stored paths against the uploads root (traversal-safe).
+Every read and write goes through `StorageProvider` (`lib/storage/`): the local
+disk (`LocalStorageProvider`, the V1 default) or a Cloudflare R2 bucket
+(`R2StorageProvider`). Both name objects the same way —
+`<shareId>/<n>-<sanitized name>`, the share id a server-side random UUID, the
+file name stripped of path separators and unusual characters, never taken from
+user input as-is — and downloads are streamed by the app, so the bucket never
+has to be public and no CDN is involved.
+
+Which provider serves a file is decided **per row** (`ShareFile.storageType`),
+which is what makes the switch safe: set `STORAGE_TYPE=R2` and new uploads go to
+the bucket while every share already on the disk keeps downloading. Without R2
+credentials the app only ever touches the disk.
+
+The old local helpers — `<uploads root>/<shareId>/<n>-<name>` and the
+traversal-safe path re-resolution — are unchanged inside `LocalStorageProvider`.
 
 `/<route>/download` serves a single file as itself, or bundles the whole set
 into one ZIP (built with `node:zlib` — see `lib/zip.ts` — and streamed as it is

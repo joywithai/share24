@@ -45,7 +45,9 @@ const { createCodeShare, createFileShare, verifyPinAction } = await import(
   '@/app/actions/share'
 );
 const { hashPin, verifyPin, unlockCookieName } = await import('@/lib/pin');
-const { UPLOADS_ROOT } = await import('@/lib/storage');
+const { uploadsRoot } = await import('@/lib/storage');
+// The throwaway root from tests/setup.ts — stable for the whole file.
+const UPLOADS_ROOT = uploadsRoot();
 
 beforeEach(() => {
   vi.clearAllMocks();

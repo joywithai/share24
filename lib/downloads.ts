@@ -7,6 +7,7 @@ import {
   unlockCookieName,
 } from '@/lib/pin';
 import { prisma } from '@/lib/prisma';
+import type { StorageFileRef } from '@/lib/storage/types';
 
 /**
  * Shared gate for every file download of a share.
@@ -17,9 +18,12 @@ import { prisma } from '@/lib/prisma';
  * only deal with serving bytes.
  */
 
-export interface DownloadableFile {
+/**
+ * One downloadable file: the storage columns decide *which* provider serves it,
+ * the rest is what the response headers need.
+ */
+export interface DownloadableFile extends StorageFileRef {
   id: string;
-  storedPath: string;
   fileName: string;
   fileSize: number;
   mimeType: string;

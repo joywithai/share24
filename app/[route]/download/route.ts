@@ -1,10 +1,19 @@
-import { readFile } from 'node:fs/promises';
-
 import { downloadFailure } from '@/lib/download-error';
 import { DOWNLOAD_SCOPE_ALL } from '@/lib/download-token';
 import { authorizeDownload } from '@/lib/downloads';
-import { keepAvailable, resolveStoredPath } from '@/lib/storage';
-import { safeEntryName, zipStream } from '@/lib/zip';
+import {
+  availableFiles,
+  getStorageProvider,
+  providerFor,
+  resolveStoredPath,
+  type StorageFileRef,
+} from '@/lib/storage';
+import {
+  safeEntryName,
+  type ZipEntry,
+  type ZipSource,
+  zipStream,
+} from '@/lib/zip';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,8 +21,11 @@ export const dynamic = 'force-dynamic';
  * /<route>/download — the whole share.
  *
  * One file: served as itself (so single-file links keep working exactly as
- * before). Several files: bundled into one ZIP, streamed as it is built —
- * handy when somebody shared ten screenshots under one name.
+ * before). Several files: bundled into one ZIP, streamed as it is built — handy
+ * when somebody shared ten screenshots under one name.
+ *
+ * The bytes come from whichever storage provider each row belongs to, so a
+ * share uploaded before the switch to R2 still downloads from the disk.
  */
 export async function GET(
   request: Request,
@@ -27,10 +39,10 @@ export async function GET(
   });
   if (!access.ok) return access.response;
 
-  // Metadata can outlive the bytes (a wiped uploads folder, an ephemeral disk),
+  // Metadata can outlive the bytes (a wiped uploads folder, deleted objects),
   // so only the files that are really there go into the answer: a ZIP of what
   // is left beats a corrupt archive, and nothing left is an explained page.
-  const present = await keepAvailable(access.files);
+  const present = await availableFiles(access.files);
   if (present.length === 0) {
     return downloadFailure('files-gone', {
       route: access.route,
@@ -38,55 +50,76 @@ export async function GET(
     });
   }
 
-  // Never trust the stored paths — each must resolve inside the uploads root.
-  const resolved = present.map((file) => ({
-    file,
-    absolute: resolveStoredPath(file.storedPath),
-  }));
-  if (resolved.some((entry) => entry.absolute === null)) {
+  if (present.length === 1) {
+    return singleFile(access.route, present[0]);
+  }
+
+  // Never trust the stored locations — each one is validated by its provider.
+  let entries: ZipEntry[];
+  try {
+    entries = present.map((file) => ({
+      name: file.fileName,
+      source: zipSourceFor(file),
+    }));
+  } catch (error) {
+    console.error(`[download] ${access.route} has an unusable location`, error);
     return downloadFailure('corrupt', { route: access.route });
   }
 
-  if (resolved.length === 1) {
-    const [{ file, absolute }] = resolved;
-    let data: Buffer;
-    try {
-      data = await readFile(absolute as string);
-    } catch {
-      return missingFromDisk(access.route);
-    }
-    return new Response(new Uint8Array(data), {
-      status: 200,
-      headers: {
-        'Content-Type': file.mimeType,
-        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
-        'Content-Length': String(data.length),
-        'Cache-Control': 'no-store',
-      },
-    });
-  }
-
-  const archiveName = `${safeEntryName(route)}.zip`;
-  return new Response(
-    zipStream(
-      resolved.map(({ file, absolute }) => ({
-        name: file.fileName,
-        path: absolute as string,
-      })),
-    ),
-    {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(archiveName)}`,
-        // The archive is built as it streams, so its length is not known up
-        // front — chunked transfer it is.
-        'Cache-Control': 'no-store',
-      },
+  const archiveName = `${safeEntryName(access.route)}.zip`;
+  return new Response(zipStream(entries), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(archiveName)}`,
+      // The archive is built as it streams, so its length is not known up
+      // front — chunked transfer it is.
+      'Cache-Control': 'no-store',
     },
-  );
+  });
 }
 
-function missingFromDisk(route: string): Response {
-  return downloadFailure('file-gone', { route });
+async function singleFile(
+  route: string,
+  file: StorageFileRef & { fileName: string; mimeType: string },
+): Promise<Response> {
+  let data: Uint8Array | null;
+  try {
+    data = await providerFor(file).get(file);
+  } catch (error) {
+    console.error(`[download] ${route} could not be read`, error);
+    return downloadFailure('corrupt', { route });
+  }
+
+  if (!data) return downloadFailure('file-gone', { route });
+
+  return new Response(new Uint8Array(data), {
+    status: 200,
+    headers: {
+      'Content-Type': file.mimeType,
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+      'Content-Length': String(data.length),
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
+/**
+ * Where one entry of the archive comes from. Local files are read from the disk
+ * as the archive streams; anything remote is fetched through its provider while
+ * the archive is being written, one file at a time.
+ */
+function zipSourceFor(file: StorageFileRef): ZipSource {
+  if (file.storageType === 'LOCAL') {
+    const absolute = resolveStoredPath(file.storedPath);
+    if (!absolute) {
+      throw new Error(
+        `stored path escapes the uploads root: ${file.storedPath}`,
+      );
+    }
+    return { kind: 'path', path: absolute };
+  }
+
+  const provider = getStorageProvider('R2');
+  return { kind: 'remote', load: () => provider.get(file) };
 }

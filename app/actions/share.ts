@@ -1,13 +1,10 @@
 'use server';
 
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-
 import { cookies } from 'next/headers';
 
 import { getSession } from '@/lib/auth';
 import { expiryFrom, isShareExpired } from '@/lib/expire';
-import { extensionOf, filesProblem, mimeTypeFor } from '@/lib/file';
+import { filesProblem, mimeTypeFor } from '@/lib/file';
 import {
   verifyPin as comparePinWithHash,
   createUnlockToken,
@@ -18,7 +15,7 @@ import {
 import { prisma } from '@/lib/prisma';
 import { normalizeRoute, routeProblem } from '@/lib/route';
 import { codeShareSchema } from '@/lib/schemas';
-import { ensureUploadsRoot, UPLOADS_ROOT } from '@/lib/storage';
+import { getStorageProvider, type StorageLocation } from '@/lib/storage';
 
 export interface ShareResult {
   ok: boolean;
@@ -146,10 +143,13 @@ export async function createCodeShare(input: unknown): Promise<ShareResult> {
 /**
  * Create a file share — one route carrying 1–10 files.
  *
- * Order matters: validate → write the files to the local uploads area →
- * (transaction) check route availability + create the share and one ShareFile
- * row per file. If the database step fails, the just-written files are
- * removed again.
+ * Order matters: validate → store the files through the configured storage
+ * provider → (transaction) check route availability + create the share and one
+ * ShareFile row per file. If the database step fails, the bytes that were just
+ * written are removed again, so storage and metadata cannot drift apart.
+ *
+ * Which provider is used comes from `STORAGE_TYPE` (`LOCAL` by default); the
+ * row records the choice, so a later switch to R2 never orphans this share.
  */
 export async function createFileShare(
   formData: FormData,
@@ -176,38 +176,24 @@ export async function createFileShare(
   const now = new Date();
   const expiresAt = expiryFrom(now);
 
-  // Deterministic, traversal-safe storage layout: <root>/<shareId>/<n>-<name>
+  const provider = getStorageProvider();
   const shareId = crypto.randomUUID();
-  const directory = path.join(UPLOADS_ROOT, shareId);
 
-  const stored = files.map((file, position) => {
-    const ext = extensionOf(file.name);
-    const base = (file.name.split(/[\\/]/).pop() ?? '')
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .replace(/^\.+/, '')
-      .slice(0, 60);
-    const stem = ext
-      ? base.slice(0, Math.max(1, base.length - ext.length - 1))
-      : base;
-    const storedName = `${String(position + 1).padStart(2, '0')}-${stem || 'file'}${ext ? `.${ext}` : ''}`;
-    return {
-      position,
-      storedName,
-      relativePath: `${shareId}/${storedName}`,
-      fileName: file.name,
-      fileSize: file.size,
-      mimeType: mimeTypeFor(file.name, file.type),
-    };
-  });
+  // The metadata the database needs, plus a lazy byte reader per file: the
+  // provider pulls one file's bytes while it writes it, so a 10-file / 50 MB
+  // share never has to sit in memory as a whole. The stored name (and with it
+  // the extension a browser sees) is the provider's job — see
+  // lib/storage/naming.ts.
+  const uploads = files.map((file, position) => ({
+    fileName: file.name,
+    position,
+    fileSize: file.size,
+    mimeType: mimeTypeFor(file.name, file.type),
+    bytes: async () => new Uint8Array(await file.arrayBuffer()),
+  }));
 
-  await ensureUploadsRoot();
-  await mkdir(directory, { recursive: true });
-  for (const [index, entry] of stored.entries()) {
-    await writeFile(
-      path.join(directory, entry.storedName),
-      Buffer.from(await files[index].arrayBuffer()),
-    );
-  }
+  // A provider that fails halfway removes its own partial writes.
+  const locations: StorageLocation[] = await provider.save(shareId, uploads);
 
   let outcome: 'taken' | 'created';
   try {
@@ -229,9 +215,12 @@ export async function createFileShare(
         },
       });
       await tx.shareFile.createMany({
-        data: stored.map((entry) => ({
+        data: uploads.map((entry, index) => ({
           shareId,
-          storedPath: entry.relativePath,
+          storedPath: locations[index].storedPath,
+          storageType: locations[index].storageType,
+          r2Key: locations[index].r2Key,
+          r2Bucket: locations[index].r2Bucket,
           fileName: entry.fileName,
           fileSize: entry.fileSize,
           mimeType: entry.mimeType,
@@ -241,12 +230,12 @@ export async function createFileShare(
       return 'created' as const;
     });
   } catch (error) {
-    await rm(directory, { recursive: true, force: true }).catch(() => {});
+    await provider.deleteShare(shareId).catch(() => {});
     throw error;
   }
 
   if (outcome === 'taken') {
-    await rm(directory, { recursive: true, force: true }).catch(() => {});
+    await provider.deleteShare(shareId).catch(() => {});
     return { ok: false, error: ROUTE_TAKEN_ERROR };
   }
 

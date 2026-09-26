@@ -1,30 +1,48 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { downloadFailure } from '@/lib/download-error';
-import { keepAvailable } from '@/lib/storage';
+import {
+  availableFiles,
+  resolveStoredPath,
+  type StorageFileRef,
+} from '@/lib/storage';
 
-interface FakeFile {
+interface FakeFile extends StorageFileRef {
   id: string;
-  storedPath: string;
 }
 
 function file(id: string): FakeFile {
-  return { id, storedPath: `share/${id}.txt` };
+  return {
+    id,
+    storedPath: `share/${id}.txt`,
+    storageType: 'LOCAL',
+    r2Key: null,
+    r2Bucket: null,
+  };
 }
 
-describe('keepAvailable', () => {
+/** Writes real bytes under the throwaway root from tests/setup.ts. */
+async function writeStored(relative: string, body: string): Promise<void> {
+  const absolute = resolveStoredPath(relative);
+  if (!absolute) throw new Error(`unsafe test path: ${relative}`);
+  await mkdir(path.dirname(absolute), { recursive: true });
+  await writeFile(absolute, body);
+}
+
+describe('availableFiles', () => {
   it('keeps the entries that are still on disk, in the order given', async () => {
-    const files = [file('a'), file('b'), file('c')];
-    const present = await keepAvailable(
-      files,
-      async (storedPath) => storedPath !== 'share/b.txt',
-    );
+    await writeStored('share/a.txt', 'a');
+    await writeStored('share/c.txt', 'c');
+
+    const present = await availableFiles([file('a'), file('b'), file('c')]);
 
     expect(present.map((entry) => entry.id)).toEqual(['a', 'c']);
   });
 
   it('returns nothing when the whole folder was wiped', async () => {
-    const present = await keepAvailable([file('a')], async () => false);
+    const present = await availableFiles([file('gone-for-good')]);
     expect(present).toEqual([]);
   });
 });

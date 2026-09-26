@@ -4,7 +4,12 @@ import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 
-import { crc32, safeEntryName, zipStream } from '@/lib/zip';
+import {
+  crc32,
+  safeEntryName,
+  ZipSourceMissingError,
+  zipStream,
+} from '@/lib/zip';
 
 /** Reads a stream to the end and returns the bytes. */
 async function drain(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
@@ -96,9 +101,18 @@ describe('zipStream', () => {
       await writeFile(path.join(dir, 'empty.txt'), '');
 
       const stream = zipStream([
-        { name: 'first.txt', path: path.join(dir, 'first.txt') },
-        { name: 'second.md', path: path.join(dir, 'second.md') },
-        { name: 'empty.txt', path: path.join(dir, 'empty.txt') },
+        {
+          name: 'first.txt',
+          source: { kind: 'path', path: path.join(dir, 'first.txt') },
+        },
+        {
+          name: 'second.md',
+          source: { kind: 'path', path: path.join(dir, 'second.md') },
+        },
+        {
+          name: 'empty.txt',
+          source: { kind: 'path', path: path.join(dir, 'empty.txt') },
+        },
       ]);
       const archive = await drain(stream);
       const entries = readZip(archive);
@@ -124,8 +138,14 @@ describe('zipStream', () => {
 
       const archive = await drain(
         zipStream([
-          { name: 'same.txt', path: path.join(dir, 'a.txt') },
-          { name: 'same.txt', path: path.join(dir, 'b.txt') },
+          {
+            name: 'same.txt',
+            source: { kind: 'path', path: path.join(dir, 'a.txt') },
+          },
+          {
+            name: 'same.txt',
+            source: { kind: 'path', path: path.join(dir, 'b.txt') },
+          },
         ]),
       );
       const entries = readZip(archive);
@@ -147,7 +167,10 @@ describe('zipStream', () => {
       await writeFile(path.join(dir, 'big.txt'), big);
 
       const reader = zipStream([
-        { name: 'big.txt', path: path.join(dir, 'big.txt') },
+        {
+          name: 'big.txt',
+          source: { kind: 'path', path: path.join(dir, 'big.txt') },
+        },
       ]).getReader();
       const sizes: number[] = [];
       for (;;) {
@@ -167,7 +190,35 @@ describe('zipStream', () => {
   });
 
   it('rejects when a file disappeared from disk', async () => {
-    const stream = zipStream([{ name: 'gone.txt', path: '/nope/gone.txt' }]);
+    const stream = zipStream([
+      { name: 'gone.txt', source: { kind: 'path', path: '/nope/gone.txt' } },
+    ]);
     await expect(drain(stream)).rejects.toThrow();
+  });
+
+  it('packs an entry that comes from a lazy remote source', async () => {
+    const bytes = Buffer.from('bytes from the bucket, not from this disk');
+    const archive = await drain(
+      zipStream([
+        {
+          name: 'remote.txt',
+          source: { kind: 'remote', load: async () => bytes },
+        },
+      ]),
+    );
+    const entries = readZip(archive);
+
+    expect(entries.map((entry) => entry.name)).toEqual(['remote.txt']);
+    expect(entries[0].data.equals(bytes)).toBe(true);
+  });
+
+  it('fails loudly when a remote entry vanished mid-archive', async () => {
+    const stream = zipStream([
+      {
+        name: 'gone-remote.txt',
+        source: { kind: 'remote', load: async () => null },
+      },
+    ]);
+    await expect(drain(stream)).rejects.toThrow(ZipSourceMissingError);
   });
 });

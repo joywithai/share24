@@ -8,6 +8,32 @@ not by which file moved.
 Base: `5a588f7` — *upload UX round* — bigger drop area, block-list upload rules
 (archives / executables / web pages / media), live route-availability check.
 
+## Phase 1 — Storage that can leave the disk (Cloudflare R2)
+
+The production roadmap's first phase: uploads no longer assume "the file is on
+this machine".
+
+- **One contract, two providers.** `lib/storage/` defines `StorageProvider`
+  (`save` / `get` / `exists` / `delete` / `deleteShare`) with a local-disk
+  implementation (the V1 default) and a Cloudflare R2 one (S3 API,
+  `@aws-sdk/client-s3`). Uploads, both download routes and the ZIP writer go
+  through it; nothing else touches the filesystem.
+- **The switch is safe by row, not by deploy.** `ShareFile` gained
+  `storageType` (`LOCAL` by default) plus `r2Key` / `r2Bucket`. New uploads follow
+  `STORAGE_TYPE`, but every download is served by the provider recorded on the
+  row itself — so flipping to R2 cannot orphan the shares that are already up,
+  and a R2 outage only affects R2 rows. `SystemSetting` (a small key/value table)
+  arrived with the same migration.
+- **Object names stay human.** `<shareId>/<nn>-<name>.<ext>` for both providers,
+  with the same sanitising as before and the extension taken from the sanitized
+  name (a device name like `...hidden` can no longer produce an odd suffix).
+- **Failures are honest.** A provider that fails halfway removes its own partial
+  writes, a failed database step removes the whole share's bytes, and bytes that
+  are gone still render the explained 410 page instead of an empty archive.
+- **Tests grew from 155 to 187**: provider behaviour on a real temporary root,
+  the R2 contract against a recording S3 client (keys, buckets, error mapping,
+  cleanup, signing), ZIP entries from remote sources, and availability checks.
+
 ## `cd973dd` — Downloads that explain themselves (and survive a restart)
 
 Reported again as “nothing downloads”. The links were verified fine (every

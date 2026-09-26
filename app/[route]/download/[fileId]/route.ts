@@ -1,8 +1,6 @@
-import { readFile } from 'node:fs/promises';
-
 import { downloadFailure } from '@/lib/download-error';
 import { authorizeDownload } from '@/lib/downloads';
-import { resolveStoredPath } from '@/lib/storage';
+import { providerFor } from '@/lib/storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +8,8 @@ export const dynamic = 'force-dynamic';
  * /<route>/download/<fileId> — one file out of a multi-file share.
  *
  * The file must belong to the share addressed by the route, so an id from
- * another share can never be fetched through this route.
+ * another share can never be fetched through this route. The bytes are read
+ * through the provider that owns them (local disk or R2).
  */
 export async function GET(
   request: Request,
@@ -29,15 +28,19 @@ export async function GET(
     return downloadFailure('not-part-of-share', { route: access.route });
   }
 
-  const absolute = resolveStoredPath(file.storedPath);
-  if (!absolute) {
+  let data: Uint8Array | null;
+  try {
+    data = await providerFor(file).get(file);
+  } catch (error) {
+    console.error(
+      `[download] ${access.route}/${file.id} could not be read`,
+      error,
+    );
     return downloadFailure('corrupt', { route: access.route });
   }
 
-  let data: Buffer;
-  try {
-    data = await readFile(absolute);
-  } catch {
+  // The row is there but the bytes are not — metadata outliving its file.
+  if (!data) {
     return downloadFailure('file-gone', { route: access.route });
   }
 
