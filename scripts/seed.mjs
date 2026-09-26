@@ -120,7 +120,7 @@ if (codeTaken.rows.length === 0) {
   console.log('[seed] created sample code share /hello-world');
 }
 
-// --- Sample active file share ---------------------------------------------
+// --- Sample active file share (two files, to show the ZIP + per-file rows) --
 const fileTaken = await client.query(
   `SELECT 1 FROM "Share" WHERE "route" = 'hello-file' AND "isExpired" = false AND "expiresAt" > $1`,
   [iso(now)],
@@ -131,27 +131,44 @@ if (fileTaken.rows.length === 0) {
     process.env.CORIUM_UPLOADS_DIR ?? path.join('/tmp', 'corium-uploads');
   const dir = path.join(uploads, shareId);
   mkdirSync(dir, { recursive: true });
-  const storedName = `${shareId}.txt`;
-  const content = 'Sharetofnd demo file. Download it before it burns.\n';
-  writeFileSync(path.join(dir, storedName), content);
+
+  const samples = [
+    {
+      name: 'hello.txt',
+      type: 'text/plain',
+      body: 'Sharetofnd demo file. Download it before it burns.\n',
+    },
+    {
+      name: 'notes.md',
+      type: 'text/markdown',
+      body: '# Sharetofnd demo\n\nTwo files, one link — grab them together as a ZIP or one by one.\n',
+    },
+  ];
 
   await client.query(
-    `INSERT INTO "Share" ("id", "type", "route", "fileUrl", "expiresAt", "userId", "createdAt")
-     VALUES ($1, 'file', 'hello-file', $2, $3, $4, $5)`,
-    [
-      shareId,
-      `${shareId}/${storedName}`,
-      iso(new Date(now.getTime() + day)),
-      userId,
-      iso(now),
-    ],
+    `INSERT INTO "Share" ("id", "type", "route", "expiresAt", "userId", "createdAt")
+     VALUES ($1, 'file', 'hello-file', $2, $3, $4)`,
+    [shareId, iso(new Date(now.getTime() + day)), userId, iso(now)],
   );
-  await client.query(
-    `INSERT INTO "File" ("id", "shareId", "fileName", "fileSize", "mimeType")
-     VALUES ($1, $2, 'hello.txt', $3, 'text/plain')`,
-    [crypto.randomUUID(), shareId, Buffer.byteLength(content)],
-  );
-  console.log('[seed] created sample file share /hello-file');
+
+  for (const [position, sample] of samples.entries()) {
+    const storedName = `${String(position + 1).padStart(2, '0')}-${sample.name}`;
+    writeFileSync(path.join(dir, storedName), sample.body);
+    await client.query(
+      `INSERT INTO "ShareFile" ("id", "shareId", "storedPath", "fileName", "fileSize", "mimeType", "position")
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        crypto.randomUUID(),
+        shareId,
+        `${shareId}/${storedName}`,
+        sample.name,
+        Buffer.byteLength(sample.body),
+        sample.type,
+        position,
+      ],
+    );
+  }
+  console.log('[seed] created sample file share /hello-file (2 files)');
 }
 
 // --- Sample expired share ---------------------------------------------------

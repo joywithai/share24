@@ -25,18 +25,19 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { fileProblem } from '@/lib/file';
+import { filesProblem, MAX_FILES_PER_SHARE } from '@/lib/file';
 import { normalizeRoute } from '@/lib/route';
 import { type FileShareInput, fileShareSchema } from '@/lib/schemas';
 
 /**
- * /create/file — Client Component: drag-and-drop upload with instant client
- * validation, then the `createFileShare` server action (which re-validates
- * type, size and route availability server-side).
+ * /create/file — Client Component: drag-and-drop upload of a whole set (1–10
+ * files) with instant client validation, then the `createFileShare` server
+ * action (which re-validates type, size, count and route availability
+ * server-side).
  */
 export default function CreateFilePage() {
   const router = useRouter();
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -71,17 +72,13 @@ export default function CreateFilePage() {
     defaultValues: { route: '', pin: '' },
   });
 
-  function handleFile(next: File | null) {
-    setFile(next);
-    setFileError(next ? fileProblem(next) : null);
+  function handleFiles(next: File[]) {
+    setFiles(next);
+    setFileError(next.length > 0 ? filesProblem(next) : null);
   }
 
   const onSubmit = handleSubmit(async (values) => {
-    if (!file) {
-      setFileError('Choose a file to share.');
-      return;
-    }
-    const issue = fileProblem(file);
+    const issue = filesProblem(files);
     if (issue) {
       setFileError(issue);
       return;
@@ -91,7 +88,7 @@ export default function CreateFilePage() {
     setSubmitError(null);
 
     const formData = new FormData();
-    formData.append('file', file);
+    for (const file of files) formData.append('files', file);
     formData.append('route', normalizeRoute(values.route));
     formData.append('pin', values.pin);
 
@@ -109,24 +106,25 @@ export default function CreateFilePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Share a file</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Share files</h1>
         <p className="mt-1 text-sm text-sub">
-          Drop a file, name the route, get a download link that dies in 24
-          hours.
+          Drop up to {MAX_FILES_PER_SHARE} files under one name and get a single
+          link — they download together as a ZIP or one by one, and the whole
+          thing dies in 24 hours.
         </p>
       </div>
 
       <form onSubmit={onSubmit} className="space-y-5">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm">File</CardTitle>
+            <CardTitle className="text-sm">Files</CardTitle>
             <CardDescription>
-              Any single file up to 10 MB — archives, executables, web pages and
-              video/audio are blocked.
+              1–{MAX_FILES_PER_SHARE} files, 10 MB each and 50 MB in total —
+              archives, executables, web pages and video/audio are blocked.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <FileDrop file={file} onFile={handleFile} error={fileError} />
+            <FileDrop files={files} onFiles={handleFiles} error={fileError} />
           </CardContent>
         </Card>
 
@@ -181,7 +179,7 @@ export default function CreateFilePage() {
                 </p>
               ) : (
                 <p id="file-pin-hint" className="text-xs text-sub/70">
-                  Viewers must enter this PIN to download the file.
+                  Viewers must enter this PIN to download the files.
                 </p>
               )}
             </div>
@@ -201,9 +199,13 @@ export default function CreateFilePage() {
           <Button
             type="submit"
             size="lg"
-            disabled={pending || !file || fileError !== null}
+            disabled={pending || files.length === 0 || fileError !== null}
           >
-            {pending ? 'Uploading…' : 'Create share'}
+            {pending
+              ? 'Uploading…'
+              : files.length > 1
+                ? `Create share · ${files.length} files`
+                : 'Create share'}
           </Button>
         </div>
       </form>

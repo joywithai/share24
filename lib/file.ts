@@ -1,11 +1,17 @@
 /**
- * File upload rules (V1.1): any *single* file up to 10 MB, except the kinds
- * that can hurt the site or bloat it — archives, executables, active web
- * content and media containers. Text-ish developer files (js, css, c++, md,
- * json, …) are welcome.
+ * File upload rules (V1.2): one share carries 1–10 files, each up to 10 MB
+ * and 50 MB in total, except the kinds that can hurt the site or bloat it —
+ * archives, executables, active web content and media containers. Text-ish
+ * developer files (js, css, c++, md, json, …) are welcome.
  */
 
-export const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+export const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per file
+
+/** How many files a single share may carry. */
+export const MAX_FILES_PER_SHARE = 10;
+
+/** Ceiling for one share's files combined (the whole set, not per file). */
+export const MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50 MB per share
 
 /** Well-known extension → canonical MIME type (storage hint only). */
 export const KNOWN_MIME_TYPES: Record<string, string> = {
@@ -151,6 +157,33 @@ export function fileProblem(file: {
   }
   if (file.size > MAX_FILE_BYTES) {
     return `Files must be ${MAX_FILE_BYTES / (1024 * 1024)} MB or smaller.`;
+  }
+  return null;
+}
+
+/**
+ * Validates a whole upload set for one share: at least one file, at most
+ * `MAX_FILES_PER_SHARE`, every file acceptable on its own, and everything
+ * together inside `MAX_TOTAL_BYTES`. Returns a message, or `null` when the
+ * set may be shared. Used by the client (instant feedback) and by the server
+ * action (authoritative).
+ */
+export function filesProblem(
+  files: readonly { name: string; type: string; size: number }[],
+): string | null {
+  if (files.length === 0) return 'Choose at least one file to share.';
+  if (files.length > MAX_FILES_PER_SHARE) {
+    return `A share can hold ${MAX_FILES_PER_SHARE} files at most — remove ${files.length - MAX_FILES_PER_SHARE}.`;
+  }
+
+  for (const file of files) {
+    const issue = fileProblem(file);
+    if (issue) return `${file.name}: ${issue}`;
+  }
+
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  if (total > MAX_TOTAL_BYTES) {
+    return `That set is ${formatBytes(total)} — a share can hold ${MAX_TOTAL_BYTES / (1024 * 1024)} MB in total.`;
   }
   return null;
 }

@@ -13,8 +13,10 @@ something to share → no signup, no forms → paste it + pick a route → link
 ## V1 features
 
 - **Code sharing** — Monaco editor (bundled, no CDN), plain text, 200 KB cap
-- **File sharing** — drag & drop; any single file up to 10 MB except archives,
-  executables, active web content and video/audio (block-list, not allow-list)
+- **File sharing** — drag & drop 1–10 files under one route (10 MB each, 50 MB
+  per share) except archives, executables, active web content and video/audio
+  (block-list, not allow-list); viewers download them one by one or all
+  together as a streamed ZIP
 - **Custom routes** — `/{a-z0-9_-}` 3–50 chars; reserved words blocked; a route
   is free again as soon as the previous share expires
 - **Open by name** — type (or paste) a share name in the homepage box to jump
@@ -147,10 +149,13 @@ transaction, so two simultaneous creates on one route can't both win)
 `User`, `Session`, `Account`, `Verification` (Better Auth standard schema) plus:
 
 ```
-Share: id, type(code|file), route, content?, fileUrl?, pinHash?,
-       expiresAt, isExpired, userId?, createdAt
-File:  id, shareId(unique), fileName, fileSize, mimeType
+Share:     id, type(code|file), route, content?, pinHash?,
+           expiresAt, isExpired, userId?, createdAt
+ShareFile: id, shareId, storedPath, fileName, fileSize, mimeType, position
 ```
+
+A `file` share owns 1–10 `ShareFile` rows; `position` keeps the order the
+author picked them in, which is also the order inside the ZIP.
 
 Route uniqueness is enforced by query (`route` + `isExpired = false` +
 `expiresAt > now`) inside the create transaction — expired shares release
@@ -164,9 +169,15 @@ expired panel renders.
 
 ### File storage (V1)
 
-`<uploads root>/<shareId>/<shareId><ext>` — paths are generated server-side
-(random UUIDs), never derived from user input; the download handler re-resolves
-stored paths against the uploads root (traversal-safe).
+`<uploads root>/<shareId>/<n>-<sanitized name>` — the directory name is a
+server-side random UUID and the file name is stripped of path separators and
+unusual characters, never taken from user input as-is; both download handlers
+re-resolve stored paths against the uploads root (traversal-safe).
+
+`/<route>/download` serves a single file as itself, or bundles the whole set
+into one ZIP (built with `node:zlib` — see `lib/zip.ts` — and streamed as it is
+compressed). `/<route>/download/<fileId>` serves one file of the set, and only
+when that file belongs to the share in the URL.
 
 ## Security notes
 
@@ -176,7 +187,10 @@ stored paths against the uploads root (traversal-safe).
   ≤ 1 h, httpOnly, SameSite=Lax
 - Server-side re-validation of everything (schemas, file type/size, routes)
 - Files: extension allow-list + declared-MIME cross-check (deep magic-byte
-  block-list rejects archives/executables/web pages/media), 10 MB cap
+  block-list rejects archives/executables/web pages/media), 10 MB per file,
+  10 files and 50 MB per share
+- ZIP entry names are sanitized and de-duplicated, so a crafted upload name
+  cannot escape the archive's own directory or overwrite a sibling entry
 - Code is rendered in a read-only Monaco instance (never `dangerouslySetInnerHTML`)
 - SQL through Prisma only (parameterized); no raw SQL except dev scripts
 - V1 has **no rate limiting** on PIN attempts (documented gap, V2)
@@ -184,7 +198,8 @@ stored paths against the uploads root (traversal-safe).
 ## Testing
 
 ```bash
-npm test                    # 72 tests: route/pin/file/expire/schema rules,
+npm test                    # ~130 tests: route/pin/file/expire/schema rules,
+                            # the ZIP writer, auth + create flows,
                             # server actions (mocked DB, real file I/O),
                             # UI components (jsdom)
 npm run e2e                 # Playwright: code round-trip, file download,

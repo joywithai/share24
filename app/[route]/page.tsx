@@ -36,7 +36,7 @@ export default async function SharePage({
   const share = await prisma.share.findFirst({
     where: { route },
     orderBy: { createdAt: 'desc' },
-    include: { file: true },
+    include: { files: { orderBy: { position: 'asc' } } },
   });
   if (!share) {
     notFound();
@@ -100,15 +100,12 @@ export default async function SharePage({
       content={share.content ?? ''}
       createdAt={share.createdAt.toISOString()}
       expiresAt={share.expiresAt.toISOString()}
-      file={
-        share.file
-          ? {
-              fileName: share.file.fileName,
-              fileSize: share.file.fileSize,
-              mimeType: share.file.mimeType,
-            }
-          : undefined
-      }
+      files={share.files.map((file) => ({
+        id: file.id,
+        fileName: file.fileName,
+        fileSize: file.fileSize,
+        mimeType: file.mimeType,
+      }))}
     />
   );
 }

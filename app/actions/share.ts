@@ -7,7 +7,7 @@ import { cookies } from 'next/headers';
 
 import { getSession } from '@/lib/auth';
 import { expiryFrom, isShareExpired } from '@/lib/expire';
-import { extensionOf, fileProblem, mimeTypeFor } from '@/lib/file';
+import { extensionOf, filesProblem, mimeTypeFor } from '@/lib/file';
 import {
   verifyPin as comparePinWithHash,
   createUnlockToken,
@@ -144,11 +144,12 @@ export async function createCodeShare(input: unknown): Promise<ShareResult> {
 }
 
 /**
- * Create a file share.
+ * Create a file share — one route carrying 1–10 files.
  *
- * Order matters: validate → write the file to the local uploads area →
- * (transaction) check route availability + create share & file rows. If the
- * database step fails, the just-written file is removed again.
+ * Order matters: validate → write the files to the local uploads area →
+ * (transaction) check route availability + create the share and one ShareFile
+ * row per file. If the database step fails, the just-written files are
+ * removed again.
  */
 export async function createFileShare(
   formData: FormData,
@@ -162,29 +163,51 @@ export async function createFileShare(
     return { ok: false, error: 'PIN must be exactly 4 digits.' };
   }
 
-  const file = formData.get('file');
-  if (!(file instanceof File)) {
-    return { ok: false, error: 'Choose a file to share.' };
-  }
-  const fileIssue = fileProblem(file);
+  // The picker sends every file under `files` (repeated); `file` is still
+  // accepted so an old form — or a hand-made request — keeps working.
+  const files = [
+    ...formData.getAll('files'),
+    ...formData.getAll('file'),
+  ].filter((entry): entry is File => entry instanceof File);
+
+  const fileIssue = filesProblem(files);
   if (fileIssue) return { ok: false, error: fileIssue };
 
   const now = new Date();
   const expiresAt = expiryFrom(now);
 
-  // Deterministic, traversal-safe storage layout: <root>/<shareId>/<shareId><ext>
+  // Deterministic, traversal-safe storage layout: <root>/<shareId>/<n>-<name>
   const shareId = crypto.randomUUID();
-  const ext = extensionOf(file.name);
-  const storedName = `${shareId}${ext ? `.${ext}` : ''}`;
-  const relativePath = `${shareId}/${storedName}`;
   const directory = path.join(UPLOADS_ROOT, shareId);
+
+  const stored = files.map((file, position) => {
+    const ext = extensionOf(file.name);
+    const base = (file.name.split(/[\\/]/).pop() ?? '')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .replace(/^\.+/, '')
+      .slice(0, 60);
+    const stem = ext
+      ? base.slice(0, Math.max(1, base.length - ext.length - 1))
+      : base;
+    const storedName = `${String(position + 1).padStart(2, '0')}-${stem || 'file'}${ext ? `.${ext}` : ''}`;
+    return {
+      position,
+      storedName,
+      relativePath: `${shareId}/${storedName}`,
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: mimeTypeFor(file.name, file.type),
+    };
+  });
 
   await ensureUploadsRoot();
   await mkdir(directory, { recursive: true });
-  await writeFile(
-    path.join(directory, storedName),
-    Buffer.from(await file.arrayBuffer()),
-  );
+  for (const [index, entry] of stored.entries()) {
+    await writeFile(
+      path.join(directory, entry.storedName),
+      Buffer.from(await files[index].arrayBuffer()),
+    );
+  }
 
   let outcome: 'taken' | 'created';
   try {
@@ -200,19 +223,20 @@ export async function createFileShare(
           id: shareId,
           type: 'file',
           route,
-          fileUrl: relativePath,
           pinHash: pin ? await hashPin(pin) : null,
           expiresAt,
           userId: await currentUserId(),
         },
       });
-      await tx.file.create({
-        data: {
+      await tx.shareFile.createMany({
+        data: stored.map((entry) => ({
           shareId,
-          fileName: file.name,
-          fileSize: file.size,
-          mimeType: mimeTypeFor(file.name, file.type),
-        },
+          storedPath: entry.relativePath,
+          fileName: entry.fileName,
+          fileSize: entry.fileSize,
+          mimeType: entry.mimeType,
+          position: entry.position,
+        })),
       });
       return 'created' as const;
     });

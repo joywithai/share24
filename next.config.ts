@@ -19,9 +19,9 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       // File shares travel through a Server Action (multipart). The 1 MB
-      // default rejects anything bigger long before our own 10 MB rule gets
-      // a say — raise it just past the product limit.
-      bodySizeLimit: '12mb',
+      // default rejects anything bigger long before our own rules get a say —
+      // raise it past the product limit for a whole set (10 files, 50 MB).
+      bodySizeLimit: '56mb',
       ...(allowedOrigins.length > 0 ? { allowedOrigins } : {}),
     },
   },

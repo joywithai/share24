@@ -89,9 +89,6 @@ model Share {
   route     String
   /// Text/code content — set when `type` is `code`.
   content   String?
-  /// Path (relative to the uploads root) of the stored file — set when
-  /// `type` is `file`.
-  fileUrl   String?
   /// bcrypt hash of the optional 4-digit PIN.
   pinHash   String?
   /// createdAt + 24 hours.
@@ -100,20 +97,33 @@ model Share {
   isExpired Boolean   @default(false)
   /// Null for anonymous shares.
   userId    String?
-  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  file      File?
-  createdAt DateTime  @default(now())
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// The uploaded files of a `file` share — between 1 and 10 of them.
+  files     ShareFile[]
+  createdAt DateTime    @default(now())
 
   @@index([route, isExpired, expiresAt])
   @@index([userId, createdAt])
   @@index([expiresAt])
 }
 
-model File {
-  id       String @id @default(cuid())
-  shareId  String @unique
-  share    Share  @relation(fields: [shareId], references: [id], onDelete: Cascade)
+/// One uploaded file of a `file` share. A share holds 1–10 of these under a
+/// single route; the public page lists them and offers each one individually
+/// or all of them as a single ZIP.
+model ShareFile {
+  id       String   @id @default(cuid())
+  shareId  String
+  share    Share    @relation(fields: [shareId], references: [id], onDelete: Cascade)
+  /// Path relative to the uploads root: `<shareId>/<n>-<name>`.
+  storedPath String
+  /// The name the file had on the author's device — used in the download
+  /// header and as the entry name inside the ZIP.
   fileName String
   fileSize Int
   mimeType String
+  /// Order the author picked the files in (0-based).
+  position Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([shareId, position])
 }

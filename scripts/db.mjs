@@ -72,29 +72,57 @@ await pg.start();
   await admin.end();
 }
 
-// Apply migrations if the schema is not present (V1 ships a single init).
+// Apply migrations in order, tracking them in a small ledger table so an
+// existing database can be *upgraded* — not just created from scratch.
 {
   const client = pg.getPgClient(dbName, host);
   await client.connect();
-  const { rows } = await client.query(
-    "SELECT to_regclass('public.Share') AS share, to_regclass('public.User') AS app_user",
+
+  const dir = path.join(root, 'prisma', 'migrations');
+  // Prisma layout: prisma/migrations/<timestamp_name>/migration.sql
+  const files = readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => path.join(dir, e.name, 'migration.sql'))
+    .sort();
+
+  await client.query(
+    `CREATE TABLE IF NOT EXISTS "_migrations" (
+       "name" TEXT PRIMARY KEY,
+       "appliedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+     )`,
   );
-  const hasSchema = Boolean(rows[0]?.share && rows[0]?.app_user);
-  if (!hasSchema) {
-    const dir = path.join(root, 'prisma', 'migrations');
-    // Prisma layout: prisma/migrations/<timestamp_name>/migration.sql
-    const files = readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => path.join(dir, e.name, 'migration.sql'))
-      .sort();
-    for (const file of files) {
-      console.log(`[db] applying ${path.basename(path.dirname(file))} …`);
-      await client.query(readFileSync(file, 'utf8'));
+  const applied = new Set(
+    (await client.query('SELECT "name" FROM "_migrations"')).rows.map(
+      (row) => row.name,
+    ),
+  );
+
+  // Databases created before the ledger existed already have the first
+  // migration applied — record that instead of running it again.
+  if (applied.size === 0 && files.length > 0) {
+    const { rows } = await client.query(
+      "SELECT to_regclass('public.Share') AS share, to_regclass('public.User') AS app_user",
+    );
+    if (rows[0]?.share && rows[0]?.app_user) {
+      const first = path.basename(path.dirname(files[0]));
+      await client.query('INSERT INTO "_migrations" ("name") VALUES ($1)', [
+        first,
+      ]);
+      applied.add(first);
+      console.log(`[db] schema already present — recorded ${first}`);
     }
-    console.log('[db] schema applied');
-  } else {
-    console.log('[db] schema already present — nothing to apply');
   }
+
+  for (const file of files) {
+    const name = path.basename(path.dirname(file));
+    if (applied.has(name)) continue;
+    console.log(`[db] applying ${name} …`);
+    await client.query(readFileSync(file, 'utf8'));
+    await client.query('INSERT INTO "_migrations" ("name") VALUES ($1)', [
+      name,
+    ]);
+  }
+
   await client.end();
 }
 

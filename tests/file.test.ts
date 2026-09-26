@@ -4,9 +4,12 @@ import {
   BLOCKED_EXTENSIONS,
   extensionOf,
   fileProblem,
+  filesProblem,
   formatBytes,
   KNOWN_MIME_TYPES,
   MAX_FILE_BYTES,
+  MAX_FILES_PER_SHARE,
+  MAX_TOTAL_BYTES,
   mimeTypeFor,
 } from '@/lib/file';
 
@@ -129,5 +132,49 @@ describe('formatBytes', () => {
     expect(formatBytes(2048)).toBe('2.0 KB');
     expect(formatBytes(5 * 1024 * 1024)).toBe('5.0 MB');
     expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe('3.0 GB');
+  });
+});
+
+/** Shorthand: a plain file descriptor of `size` bytes. */
+function fake(name: string, size = 1024, type = 'text/plain') {
+  return { name, size, type };
+}
+
+describe('filesProblem', () => {
+  it('accepts a mixed set inside every limit', () => {
+    expect(
+      filesProblem([
+        fake('a.txt'),
+        fake('b.csv', 2048, 'text/csv'),
+        fake('c.png', 4096, 'image/png'),
+      ]),
+    ).toBeNull();
+  });
+
+  it('wants at least one file', () => {
+    expect(filesProblem([])).toBe('Choose at least one file to share.');
+  });
+
+  it('caps the set at ten files', () => {
+    const eleven = Array.from({ length: MAX_FILES_PER_SHARE + 1 }, (_, i) =>
+      fake(`f${i}.txt`),
+    );
+    expect(filesProblem(eleven)).toContain('10 files at most');
+    expect(filesProblem(eleven.slice(0, MAX_FILES_PER_SHARE))).toBeNull();
+  });
+
+  it('names the offending file inside a set', () => {
+    expect(filesProblem([fake('ok.txt'), fake('archive.zip')])).toContain(
+      'archive.zip',
+    );
+  });
+
+  it('keeps the whole set inside the total ceiling', () => {
+    const heavy = Array.from({ length: 6 }, (_, i) =>
+      fake(`big-${i}.dat`, MAX_FILE_BYTES, 'application/octet-stream'),
+    );
+    expect(filesProblem(heavy)).toContain('50 MB in total');
+    expect(filesProblem(heavy.slice(0, 5))).toBeNull();
+    expect(MAX_TOTAL_BYTES).toBe(50 * 1024 * 1024);
   });
 });
