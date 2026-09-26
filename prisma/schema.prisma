@@ -1,0 +1,249 @@
+// Corium — Prisma schema
+//
+// Generator: Rust-free `prisma-client` (pure TypeScript output, no native
+// engine binaries). The client connects to PostgreSQL through the
+// `@prisma/adapter-pg` driver adapter — see `lib/prisma.ts`.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "esm"
+}
+
+// Prisma 7: the connection URL no longer lives in the schema.
+//  - CLI (migrate/…):  `prisma.config.ts` → `datasource.url`
+//  - Runtime client:   `lib/prisma.ts` → `PrismaPg` driver adapter
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Auth (Better Auth standard schema: user, session, account, verification)
+// ---------------------------------------------------------------------------
+
+/// Who may open /admin. `user` is everybody; `admin` is the operator.
+enum UserRole {
+  user
+  admin
+}
+
+/// A suspended account cannot sign in and its shares are treated as anonymous.
+enum UserStatus {
+  active
+  suspended
+}
+
+model User {
+  id            String     @id @default(cuid())
+  name          String
+  email         String     @unique
+  emailVerified Boolean    @default(false)
+  image         String?
+  /// Default for every account that signs up from the app.
+  role          UserRole   @default(user)
+  status        UserStatus @default(active)
+  /// Last time this account was seen (kept fresh by the profile page).
+  lastSeenAt    DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  shares        Share[]
+  adminActions  AdminLog[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Core domain
+// ---------------------------------------------------------------------------
+
+enum ShareType {
+  code
+  file
+}
+
+/// Where the bytes of a share file live. V1 wrote everything to the local
+/// disk; R2 keeps the same code path but the objects go to Cloudflare.
+enum StorageType {
+  LOCAL
+  R2
+  B2
+}
+
+model Share {
+  id        String    @id @default(cuid())
+  type      ShareType
+  /// Custom URL path chosen by the author. Unique among *active* shares;
+  /// reused automatically once the previous share has expired.
+  route     String
+  /// Text/code content — set when `type` is `code`.
+  content   String?
+  /// bcrypt hash of the optional 4-digit PIN.
+  pinHash   String?
+  /// createdAt + 24 hours.
+  expiresAt DateTime
+  /// Soft-delete flag. Flipped lazily on access (V1 has no cron).
+  isExpired Boolean   @default(false)
+  /// Null for anonymous shares.
+  userId    String?
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// The uploaded files of a `file` share — between 1 and 10 of them.
+  files     ShareFile[]
+  createdAt DateTime    @default(now())
+
+  @@index([route, isExpired, expiresAt])
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+}
+
+/// One uploaded file of a `file` share. A share holds 1–10 of these under a
+/// single route; the public page lists them and offers each one individually
+/// or all of them as a single ZIP.
+model ShareFile {
+  id       String   @id @default(cuid())
+  shareId  String
+  share    Share    @relation(fields: [shareId], references: [id], onDelete: Cascade)
+  /// Path relative to the uploads root: `<shareId>/<n>-<name>`.
+  /// For `R2` rows this mirrors the object key, so "where are the bytes" is
+  /// always answerable from one column.
+  storedPath String
+  /// Which storage provider owns these bytes. Rows created before the
+  /// storage switch keep `LOCAL` and keep working.
+  storageType StorageType @default(LOCAL)
+  /// Object key inside the bucket (R2 rows only).
+  r2Key String?
+  /// Bucket the object was written to (R2 rows only) — kept per row so a
+  /// future bucket change cannot orphan old files.
+  r2Bucket String?
+  /// The name the file had on the author's device — used in the download
+  /// header and as the entry name inside the ZIP.
+  fileName String
+  fileSize Int
+  mimeType String
+  /// Order the author picked the files in (0-based).
+  position Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([shareId, position])
+}
+
+// ---------------------------------------------------------------------------
+// Administration (phase 3)
+// ---------------------------------------------------------------------------
+
+/// What an operator did in the admin panel. The security trail answers "what
+/// happened"; this answers "who changed it".
+model AdminLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  /// Machine-readable verb: share.expire, user.suspend, setting.update, …
+  action     String
+  /// What it was done to (a share id, a user id, an IP, a setting key).
+  target     String?
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Security (phase 2)
+// ---------------------------------------------------------------------------
+
+/// What happened. Kept as an enum so the admin panel can filter and chart
+/// without string matching.
+enum SecurityEventType {
+  rate_limit
+  pin_failure
+  blocked_ip
+  suspicious_upload
+  login_failure
+  forbidden
+  maintenance
+}
+
+/// One thing that looked worth remembering — a rate limit hit, a wrong PIN, a
+/// blocked request, a suspicious upload. Written best-effort: logging must
+/// never be the reason a request fails.
+model SecurityEvent {
+  id        String            @id @default(cuid())
+  type      SecurityEventType
+  /// info | warning | critical — free text so new kinds need no migration.
+  severity  String            @default("warning")
+  ip        String?
+  route     String?
+  userId    String?
+  userAgent String?
+  detail    String?
+  createdAt DateTime          @default(now())
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([ip, createdAt])
+}
+
+/// An address that is not allowed to use the app any more. `expiresAt` null
+/// means a permanent block; the guard checks the table (with a short cache)
+/// before running an action.
+model BlockedIp {
+  id        String    @id @default(cuid())
+  ip        String    @unique
+  reason    String?
+  /// Admin user id, or `system` when the guard blocked it by itself.
+  blockedBy String?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
+/// Small key/value table for runtime settings an admin can change without a
+/// deploy (maintenance mode, retention windows, …). Values are strings; the
+/// reader decides how to interpret them.
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
