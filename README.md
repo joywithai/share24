@@ -5,6 +5,8 @@ but minimal. Give it a route, get a link. Everything self-destructs after
 **24 hours**. No account required (optional login just collects your shares on
 one page).
 
+> **What changed, round by round:** see [`CHANGELOG.md`](./CHANGELOG.md).
+
 ```
 something to share → no signup, no forms → paste it + pick a route → link
 → the share dies in 24h (soft-deleted, lazy check, no cron)
@@ -20,7 +22,9 @@ something to share → no signup, no forms → paste it + pick a route → link
 - **Custom routes** — `/{a-z0-9_-}` 3–50 chars; reserved words blocked; a route
   is free again as soon as the previous share expires
 - **Open by name** — type (or paste) a share name in the homepage box to jump
-  straight to that link; unknown names land on the 404 page with a Back button
+  straight to that link; unknown names land on the 404 page with a Back button.
+  The two create actions sit directly under that box, and the how-it-works
+  steps follow below them
 - **Your slugs** — creating a share drops you back on the homepage, which
   lists the names *this browser* made as chips (newest first, arrows once the
   strip overflows); one click copies the link. Kept in `sessionStorage` only —
@@ -45,7 +49,7 @@ something to share → no signup, no forms → paste it + pick a route → link
 ### Deliberately not in V1
 
 view counts/analytics, edit share, manual delete, permanent links, teams,
-light mode, multiple files per share, rate limiting, S3/CDN file storage.
+light mode, more than 10 files per share, rate limiting, S3/CDN file storage.
 
 ## Tech stack
 
@@ -107,7 +111,7 @@ the schema with `npx prisma migrate deploy` (the migration SQL lives in
 | `npm run db:dev`      | Start embedded PostgreSQL + apply migrations (dev)        |
 | `npm run db:generate` | Generate the Prisma client (offline-safe wrapper)         |
 | `npm run db:seed`     | Demo user + sample shares (active code, active file, expired) |
-| `npm test`            | Vitest: unit + component + server-action tests (72)       |
+| `npm test`            | Vitest: unit + component + server-action tests (155)      |
 | `npm run e2e`         | Playwright: the 3 critical flows (needs `npx playwright install chromium`) |
 | `npm run lint`        | Biome check                                               |
 
@@ -135,11 +139,13 @@ the schema with `npx prisma migrate deploy` (the migration SQL lives in
 ### Rendering strategy
 
 ```
-/               Server Component, static (two buttons only)
+/               Server Component — name box, create actions, "Your slugs"
+                (client-only strip fed by sessionStorage)
 /create/code    Client Component — Monaco, RHF state
 /create/file    Client Component — drag & drop, RHF state
 /[route]        Server Component — DB checks → 404 | expired | PIN form | content
-/[route]/download  Route Handler — serves the stored file (PIN-gated)
+/[route]/download          Route Handler — whole share: the file itself, or a ZIP
+/[route]/download/<fileId> Route Handler — one file of the share (PIN-gated)
 /login          Server (session check) + client form (Better Auth REST)
 /profile        Server Component (middleware-protected)
 /api/auth/*     Better Auth REST endpoints
@@ -152,7 +158,8 @@ middleware.ts   /profile only; nodejs runtime so it can read the session
 user types → RHF state → Zod (client pass) → Server Action
 → Zod again (mandatory server pass) → route availability check (in a
 transaction, so two simultaneous creates on one route can't both win)
-→ bcrypt hash if PIN → insert (expiresAt = now + 24h) → redirect to /route
+→ bcrypt hash if PIN → insert (expiresAt = now + 24h) → remember the slug
+  (sessionStorage) → redirect to the homepage, where "Your slugs" shows it
 → viewer: server fetches share → expired? flag check + timestamp check
 → PIN? unlock cookie (HMAC) → content
 ```
@@ -192,6 +199,13 @@ into one ZIP (built with `node:zlib` — see `lib/zip.ts` — and streamed as it
 compressed). `/<route>/download/<fileId>` serves one file of the set, and only
 when that file belongs to the share in the URL.
 
+Because uploads can outlive — or predecease — their rows, the routes check the
+disk before answering: only files whose bytes exist go into a ZIP, the share
+page marks the ones that are gone ("Gone", no dead button, a panel when nothing
+is left), and every failure renders a small self-contained page with the reason
+and two ways out (`lib/download-error.ts`). The file *name* in a list is a
+download link as well as the buttons.
+
 ## Security notes
 
 - Routes: `/^[a-z0-9_-]{3,50}$/` + reserved list (`api`, `auth`, `login`,
@@ -204,6 +218,9 @@ when that file belongs to the share in the URL.
   as a third-party cookie, or invalidated by a rotated secret. If neither is
   valid the visitor is sent back to the PIN form with `?download=<scope>`, and
   the download resumes by itself once the PIN is accepted
+- Download failures are pages, never a leak: expired `410`, a file id from
+  another share `404`, inconsistent metadata `500`, all rendered from a
+  self-contained template with the route HTML-escaped
 - Server-side re-validation of everything (schemas, file type/size, routes)
 - Files: extension allow-list + declared-MIME cross-check (deep magic-byte
   block-list rejects archives/executables/web pages/media), 10 MB per file,
@@ -217,8 +234,9 @@ when that file belongs to the share in the URL.
 ## Testing
 
 ```bash
-npm test                    # ~130 tests: route/pin/file/expire/schema rules,
-                            # the ZIP writer, auth + create flows,
+npm test                    # 155 tests: route/pin/file/expire/schema rules,
+                            # the ZIP writer and download availability,
+                            # download failure pages, auth + create flows,
                             # server actions (mocked DB, real file I/O),
                             # UI components (jsdom)
 npm run e2e                 # Playwright: code round-trip, file download,
@@ -235,8 +253,9 @@ app + database. It is not run in CI-less offline sandboxes.
 3. Apply migrations in an environment with network access:
    `npx prisma migrate deploy`
 4. Files live in `/tmp` on Vercel — **ephemeral** (cold starts may drop
-   uploads; the download route returns a polite 410 in that case). S3/R2
-   storage is the V2 fix.
+   uploads). Point `CORIUM_UPLOADS_DIR` at a mounted volume if you have one; if
+   the bytes are gone anyway, the download route says so on an explained page
+   instead of failing silently. S3/R2 storage is the V2 fix.
 
 ## Repository layout
 
@@ -246,12 +265,17 @@ app/                  routes (see rendering strategy above)
 components/
   editor/             Monaco wrapper (client, ssr:false)
   file/               FileDrop (client)
-  share/              ShareView, PinForm, CodeBlock, CopyButton, ExpiryCountdown
+  share/              ShareView (file list, gone states), DownloadLink,
+                      DownloadAutoStart (resume after PIN), PreviewDownloadHint,
+                      PinForm, PinInput, RouteField, CodeViewer, CopyButton,
+                      ExpiryCountdown, RecentSlugs (homepage chips)
   auth/               AuthForm (login + sign-up)
   layout/             SiteHeader, AuthNav
   ui/                 shadcn-style primitives (button, input, label, card, badge)
 lib/                  prisma singleton, auth, route rules, pin (bcrypt+HMAC),
-                      file rules, schemas (zod), storage, expire, utils
+                      download tokens, download gate, download error pages,
+                      recent slugs (sessionStorage), file rules, schemas (zod),
+                      storage, zip, expire, utils
 prisma/               schema.prisma + migrations (hand-maintained SQL,
                       applied by scripts/db.mjs in offline dev)
 scripts/              db.mjs (embedded pg), prisma.mjs (offline-safe generate),
