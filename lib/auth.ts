@@ -60,6 +60,22 @@ export const auth = betterAuth({
     // V1 has no email-sending infrastructure — users can log in right away.
     requireEmailVerification: false,
   },
+  /**
+   * Credential stuffing is the one attack that needs no bug in our code.
+   * Better Auth counts attempts per address (in memory; a multi-instance
+   * deployment should point this at Redis) — sign-in stays generous enough
+   * for a person who mistyped a password, sign-up much tighter.
+   */
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 30,
+    customRules: {
+      '/sign-in/email': { window: 60, max: 10 },
+      '/sign-up/email': { window: 300, max: 5 },
+      '/change-password': { window: 300, max: 5 },
+    },
+  },
 });
 
 /**

@@ -117,7 +117,41 @@ const BLOCKED_MIME_TYPES = new Set([
   'application/x-shockwave-flash',
   'application/java-archive',
   'application/x-apple-diskimage',
+  // active content: any document that could run script if ever rendered
+  'text/html',
+  'application/xhtml+xml',
+  'application/xml',
+  'text/xml',
+  'image/svg+xml',
 ]);
+
+/** Longest file name we keep (the display name, not the stored one). */
+export const MAX_DISPLAY_NAME = 120;
+
+/**
+ * The name shown to the visitor and put in `Content-Disposition`.
+ *
+ * Device names can carry control characters and Unicode bidi overrides — the
+ * classic trick is `invoice‮gnp.exe` rendering as `invoice exe.png`.
+ * Bidi/format characters have no business in a file name, so they are dropped,
+ * path separators collapse to `_`, and the result is trimmed to a sane length.
+ */
+export function sanitizeDisplayName(name: string): string {
+  const base = name.split(/[\\/]/).pop() ?? '';
+  const cleaned = base
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\p{Cc}\p{Cf}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const safe = cleaned.length > 0 ? cleaned : 'file';
+  if (safe.length <= MAX_DISPLAY_NAME) return safe;
+  const ext = extensionOf(safe);
+  if (!ext || ext.length + 1 >= MAX_DISPLAY_NAME) {
+    return safe.slice(0, MAX_DISPLAY_NAME);
+  }
+  const stem = safe.slice(0, safe.length - ext.length - 1);
+  return `${stem.slice(0, MAX_DISPLAY_NAME - ext.length - 1)}.${ext}`;
+}
 
 export const BLOCKED_FILE_MESSAGE =
   "That file type can't be shared — archives, executables, web pages and video/audio are blocked.";

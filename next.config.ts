@@ -1,5 +1,7 @@
 import type { NextConfig } from 'next';
 
+import { securityHeaders } from './lib/security/headers';
+
 /**
  * Origins allowed to post to Server Actions *in addition* to the request's own
  * host (comma-separated, `*` wildcards allowed — e.g. `*.example.app`).
@@ -16,6 +18,10 @@ const allowedOrigins = (process.env.CORIUM_ALLOWED_ORIGINS ?? '')
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
+  // Turn off the framework banner: every response already says which app this
+  // is, and the version of the framework underneath is not a visitor's
+  // business.
+  poweredByHeader: false,
   experimental: {
     serverActions: {
       // File shares travel through a Server Action (multipart). The 1 MB
@@ -24,6 +30,20 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '56mb',
       ...(allowedOrigins.length > 0 ? { allowedOrigins } : {}),
     },
+  },
+  /**
+   * CSP, nosniff, referrer and permission policy for every route — see
+   * `lib/security/headers.ts` for what is in them and the two deliberate
+   * omissions (framing, inline scripts). `Cache-Control` is untouched: pages
+   * that must not be cached set it themselves.
+   */
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: securityHeaders(),
+      },
+    ];
   },
 };
 

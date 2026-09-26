@@ -145,6 +145,57 @@ model ShareFile {
   @@index([shareId, position])
 }
 
+// ---------------------------------------------------------------------------
+// Security (phase 2)
+// ---------------------------------------------------------------------------
+
+/// What happened. Kept as an enum so the admin panel can filter and chart
+/// without string matching.
+enum SecurityEventType {
+  rate_limit
+  pin_failure
+  blocked_ip
+  suspicious_upload
+  login_failure
+  forbidden
+  maintenance
+}
+
+/// One thing that looked worth remembering — a rate limit hit, a wrong PIN, a
+/// blocked request, a suspicious upload. Written best-effort: logging must
+/// never be the reason a request fails.
+model SecurityEvent {
+  id        String            @id @default(cuid())
+  type      SecurityEventType
+  /// info | warning | critical — free text so new kinds need no migration.
+  severity  String            @default("warning")
+  ip        String?
+  route     String?
+  userId    String?
+  userAgent String?
+  detail    String?
+  createdAt DateTime          @default(now())
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([ip, createdAt])
+}
+
+/// An address that is not allowed to use the app any more. `expiresAt` null
+/// means a permanent block; the guard checks the table (with a short cache)
+/// before running an action.
+model BlockedIp {
+  id        String    @id @default(cuid())
+  ip        String    @unique
+  reason    String?
+  /// Admin user id, or `system` when the guard blocked it by itself.
+  blockedBy String?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
 /// Small key/value table for runtime settings an admin can change without a
 /// deploy (maintenance mode, retention windows, …). Values are strings; the
 /// reader decides how to interpret them.

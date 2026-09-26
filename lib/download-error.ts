@@ -15,13 +15,17 @@ export type DownloadFailureKind =
   | 'files-gone'
   | 'file-gone'
   | 'not-part-of-share'
-  | 'corrupt';
+  | 'corrupt'
+  | 'rate-limited'
+  | 'blocked';
 
 const STATUS: Record<DownloadFailureKind, number> = {
   'share-gone': 410,
   'files-gone': 410,
   'file-gone': 410,
   'not-part-of-share': 404,
+  'rate-limited': 429,
+  blocked: 403,
   corrupt: 500,
 };
 
@@ -51,6 +55,16 @@ function copyFor(
 ): FailureCopy {
   const slug = escapeHtml(`/${route}`);
   switch (kind) {
+    case 'blocked':
+      return {
+        title: 'This address is not allowed',
+        body: `Requests from this address are blocked, so <span style="font-family:var(--mono);color:#e5e7eb">${slug}</span> cannot be downloaded here. If that is a mistake, contact the operator.`,
+      };
+    case 'rate-limited':
+      return {
+        title: 'Too many downloads from this address',
+        body: `The share <span style="font-family:var(--mono);color:#e5e7eb">${slug}</span> is fine — this address asked for files too many times in a row. Wait a moment and try again.`,
+      };
     case 'share-gone':
       return {
         title: 'This link is gone',
@@ -83,9 +97,9 @@ function copyFor(
 
 export function downloadFailure(
   kind: DownloadFailureKind,
-  options: { route: string; missing?: number },
+  options: { route: string; missing?: number; retryAfterSeconds?: number },
 ): Response {
-  const { route, missing = 0 } = options;
+  const { route, missing = 0, retryAfterSeconds } = options;
   const { title, body } = copyFor(kind, route, missing);
   const status = STATUS[kind];
 
@@ -172,6 +186,9 @@ export function downloadFailure(
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
+      ...(status === 429 && retryAfterSeconds
+        ? { 'Retry-After': String(retryAfterSeconds) }
+        : {}),
     },
   });
 }

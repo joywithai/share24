@@ -7,6 +7,8 @@ import {
   unlockCookieName,
 } from '@/lib/pin';
 import { prisma } from '@/lib/prisma';
+import { guardAction } from '@/lib/security/guard';
+import { clientIp } from '@/lib/security/ip';
 import type { StorageFileRef } from '@/lib/storage/types';
 
 /**
@@ -22,6 +24,29 @@ import type { StorageFileRef } from '@/lib/storage/types';
  * One downloadable file: the storage columns decide *which* provider serves it,
  * the rest is what the response headers need.
  */
+/**
+ * Rate limit + block-list check for a download, before any database work.
+ * Returns a ready-to-send page, or `null` when the request may continue.
+ */
+export async function downloadGuard(
+  request: Request,
+  route: string,
+): Promise<Response | null> {
+  const outcome = await guardAction('download', {
+    ip: clientIp(request.headers),
+    route,
+    userAgent: request.headers.get('user-agent'),
+  });
+  if (outcome.ok) return null;
+
+  return outcome.status === 429
+    ? downloadFailure('rate-limited', {
+        route,
+        retryAfterSeconds: outcome.retryAfterSeconds,
+      })
+    : downloadFailure('blocked', { route });
+}
+
 export interface DownloadableFile extends StorageFileRef {
   id: string;
   fileName: string;

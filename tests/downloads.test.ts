@@ -94,3 +94,32 @@ describe('downloadFailure', () => {
     expect(html).toContain('&lt;script&gt;');
   });
 });
+
+describe('security failure pages', () => {
+  it('answers 429 with a Retry-After and says so in words', async () => {
+    const response = downloadFailure('rate-limited', {
+      route: 'busy-share',
+      retryAfterSeconds: 30,
+    });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('30');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+
+    const html = await response.text();
+    expect(html).toContain('Too many downloads');
+    expect(html).toContain('/busy-share');
+    expect(html).toContain('href="/create/file"');
+  });
+
+  it('answers 403 for a blocked address', async () => {
+    const response = downloadFailure('blocked', { route: 'blocked-share' });
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get('retry-after')).toBeNull();
+
+    const html = await response.text();
+    expect(html).toContain('not allowed');
+    expect(html).toContain('/blocked-share');
+  });
+});

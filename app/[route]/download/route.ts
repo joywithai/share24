@@ -1,6 +1,6 @@
 import { downloadFailure } from '@/lib/download-error';
 import { DOWNLOAD_SCOPE_ALL } from '@/lib/download-token';
-import { authorizeDownload } from '@/lib/downloads';
+import { authorizeDownload, downloadGuard } from '@/lib/downloads';
 import {
   availableFiles,
   getStorageProvider,
@@ -32,6 +32,11 @@ export async function GET(
   context: { params: Promise<{ route: string }> },
 ) {
   const { route } = await context.params;
+
+  // Block list and rate limit first — nothing below touches the database for
+  // an address that is hammering the route.
+  const limited = await downloadGuard(request, route);
+  if (limited) return limited;
 
   const access = await authorizeDownload(request, route, {
     scope: DOWNLOAD_SCOPE_ALL,

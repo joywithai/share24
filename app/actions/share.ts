@@ -1,10 +1,11 @@
 'use server';
 
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 
 import { getSession } from '@/lib/auth';
 import { expiryFrom, isShareExpired } from '@/lib/expire';
-import { filesProblem, mimeTypeFor } from '@/lib/file';
+import { filesProblem, mimeTypeFor, sanitizeDisplayName } from '@/lib/file';
+import { bytesProblem, SNIFF_BYTES } from '@/lib/file-magic';
 import {
   verifyPin as comparePinWithHash,
   createUnlockToken,
@@ -15,6 +16,9 @@ import {
 import { prisma } from '@/lib/prisma';
 import { normalizeRoute, routeProblem } from '@/lib/route';
 import { codeShareSchema } from '@/lib/schemas';
+import { logSecurityEvent } from '@/lib/security/events';
+import { guardAction } from '@/lib/security/guard';
+import { clientIp } from '@/lib/security/ip';
 import { getStorageProvider, type StorageLocation } from '@/lib/storage';
 
 export interface ShareResult {
@@ -44,6 +48,20 @@ async function currentUserId(): Promise<string | null> {
   return session?.user?.id ?? null;
 }
 
+/** Who is calling, as far as the forwarding headers reveal. */
+async function caller(): Promise<{
+  ip: string;
+  userAgent: string | null;
+  userId: string | null;
+}> {
+  const headerList = await headers();
+  return {
+    ip: clientIp(headerList),
+    userAgent: headerList.get('user-agent'),
+    userId: await currentUserId(),
+  };
+}
+
 /**
  * After creating (or unlocking) a PIN-protected share, the browser that just
  * proved it knows the PIN gets a short-lived unlock cookie for that route.
@@ -71,6 +89,16 @@ export async function routeStatus(input: unknown): Promise<RouteStatus> {
   const problem = routeProblem(route);
   if (problem) return { state: 'invalid', message: problem };
 
+  // Typed on every keystroke — the cheapest possible probe, but still a
+  // database read per call, so it gets its own (generous) limit.
+  const who = await caller();
+  const guard = await guardAction('lookup', {
+    ip: who.ip,
+    userId: who.userId,
+    userAgent: who.userAgent,
+  });
+  if (!guard.ok) return { state: 'invalid', message: guard.message };
+
   const now = new Date();
   const taken = await prisma.share.findFirst({
     where: { route, isExpired: false, expiresAt: { gt: now } },
@@ -89,6 +117,15 @@ export async function routeStatus(input: unknown): Promise<RouteStatus> {
  * availability.
  */
 export async function createCodeShare(input: unknown): Promise<ShareResult> {
+  // Rate limit before anything touches the database.
+  const author = await caller();
+  const guard = await guardAction('create', {
+    ip: author.ip,
+    userId: author.userId,
+    userAgent: author.userAgent,
+  });
+  if (!guard.ok) return { ok: false, error: guard.message };
+
   const parsed = codeShareSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -154,6 +191,14 @@ export async function createCodeShare(input: unknown): Promise<ShareResult> {
 export async function createFileShare(
   formData: FormData,
 ): Promise<ShareResult> {
+  const author = await caller();
+  const guard = await guardAction('create', {
+    ip: author.ip,
+    userId: author.userId,
+    userAgent: author.userAgent,
+  });
+  if (!guard.ok) return { ok: false, error: guard.message };
+
   const route = normalizeRoute(String(formData.get('route') ?? ''));
   const pin = String(formData.get('pin') ?? '');
 
@@ -173,6 +218,26 @@ export async function createFileShare(
   const fileIssue = filesProblem(files);
   if (fileIssue) return { ok: false, error: fileIssue };
 
+  // The name and the browser's MIME type are both claims the uploader
+  // controls; the first bytes are not. A renamed archive or a fake image is
+  // refused here, before anything is written.
+  for (const file of files) {
+    const head = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
+    const issue = bytesProblem({ name: file.name, type: file.type }, head);
+    if (issue) {
+      await logSecurityEvent({
+        type: 'suspicious_upload',
+        severity: 'warning',
+        ip: author.ip,
+        route,
+        userId: author.userId,
+        userAgent: author.userAgent,
+        detail: `${file.name}: ${issue}`,
+      });
+      return { ok: false, error: issue };
+    }
+  }
+
   const now = new Date();
   const expiresAt = expiryFrom(now);
 
@@ -184,13 +249,18 @@ export async function createFileShare(
   // share never has to sit in memory as a whole. The stored name (and with it
   // the extension a browser sees) is the provider's job — see
   // lib/storage/naming.ts.
-  const uploads = files.map((file, position) => ({
-    fileName: file.name,
-    position,
-    fileSize: file.size,
-    mimeType: mimeTypeFor(file.name, file.type),
-    bytes: async () => new Uint8Array(await file.arrayBuffer()),
-  }));
+  const uploads = files.map((file, position) => {
+    // The name we keep and send back is the sanitized one: no control or
+    // bidi characters, no path separators, sane length (see lib/file.ts).
+    const displayName = sanitizeDisplayName(file.name);
+    return {
+      fileName: displayName,
+      position,
+      fileSize: file.size,
+      mimeType: mimeTypeFor(displayName, file.type),
+      bytes: async () => new Uint8Array(await file.arrayBuffer()),
+    };
+  });
 
   // A provider that fails halfway removes its own partial writes.
   const locations: StorageLocation[] = await provider.save(shareId, uploads);
@@ -259,6 +329,17 @@ export async function verifyPinAction(
   const route = String(formData.get('route') ?? '');
   const pin = String(formData.get('pin') ?? '');
 
+  // PINs are four digits — 10 000 guesses is nothing without a limit, so the
+  // attempt counter is per address *and* per route.
+  const who = await caller();
+  const guard = await guardAction('pin', {
+    ip: who.ip,
+    route,
+    userId: who.userId,
+    userAgent: who.userAgent,
+  });
+  if (!guard.ok) return { ok: false, error: guard.message };
+
   if (!shareId || !route) {
     return {
       ok: false,
@@ -288,6 +369,15 @@ export async function verifyPinAction(
 
   const valid = await comparePinWithHash(pin, share.pinHash);
   if (!valid) {
+    await logSecurityEvent({
+      type: 'pin_failure',
+      severity: 'warning',
+      ip: who.ip,
+      route: share.route,
+      userId: who.userId,
+      userAgent: who.userAgent,
+      detail: 'wrong PIN for a protected share',
+    });
     return { ok: false, error: 'Incorrect PIN — please try again.' };
   }
 

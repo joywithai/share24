@@ -13,8 +13,16 @@ const cookieStore = {
   get: vi.fn().mockReturnValue(undefined),
 };
 
+const headerStore = new Map<string, string>([
+  ['x-forwarded-for', '203.0.113.10'],
+  ['user-agent', 'vitest'],
+]);
+
 vi.mock('next/headers', () => ({
   cookies: vi.fn(async () => cookieStore),
+  headers: vi.fn(async () => ({
+    get: (name: string) => headerStore.get(name.toLowerCase()) ?? null,
+  })),
 }));
 
 vi.mock('@/lib/auth', () => ({
@@ -25,6 +33,10 @@ const shareFindFirst = vi.fn();
 const shareCreate = vi.fn();
 const shareFindUnique = vi.fn();
 const shareFileCreateMany = vi.fn();
+const securityEventCreate = vi.fn();
+const blockedIpFindUnique = vi.fn();
+const blockedIpUpsert = vi.fn();
+const blockedIpDeleteMany = vi.fn();
 const prismaMock = {
   share: {
     findFirst: shareFindFirst,
@@ -32,6 +44,12 @@ const prismaMock = {
     findUnique: shareFindUnique,
   },
   shareFile: { createMany: shareFileCreateMany },
+  securityEvent: { create: securityEventCreate },
+  blockedIp: {
+    findUnique: blockedIpFindUnique,
+    upsert: blockedIpUpsert,
+    deleteMany: blockedIpDeleteMany,
+  },
   $transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) =>
     fn(prismaMock),
   ),
@@ -41,8 +59,12 @@ vi.mock('@/lib/prisma', () => ({
   prisma: prismaMock,
 }));
 
-const { createCodeShare, createFileShare, verifyPinAction } = await import(
-  '@/app/actions/share'
+const { createCodeShare, createFileShare, routeStatus, verifyPinAction } =
+  await import('@/app/actions/share');
+const { clearBlockCache } = await import('@/lib/security/events');
+const { clearViolations } = await import('@/lib/security/guard');
+const { MemoryRateLimiter, setRateLimiter } = await import(
+  '@/lib/security/rate-limit'
 );
 const { hashPin, verifyPin, unlockCookieName } = await import('@/lib/pin');
 const { uploadsRoot } = await import('@/lib/storage');
@@ -55,7 +77,16 @@ beforeEach(() => {
   shareCreate.mockImplementation(async ({ data }) => data);
   shareFindUnique.mockResolvedValue(null);
   shareFileCreateMany.mockImplementation(async ({ data }) => data);
+  securityEventCreate.mockResolvedValue({});
+  blockedIpFindUnique.mockResolvedValue(null);
+  blockedIpUpsert.mockResolvedValue({});
+  blockedIpDeleteMany.mockResolvedValue({ count: 0 });
   cookieStore.get.mockReturnValue(undefined);
+  // A fresh limiter per test: the guards are part of the real code path, so
+  // counters must not leak from one case into the next.
+  setRateLimiter(new MemoryRateLimiter());
+  clearViolations();
+  clearBlockCache();
 });
 
 describe('createCodeShare', () => {
@@ -341,5 +372,157 @@ describe('verifyPinAction', () => {
     expect(result.ok).toBe(true);
     expect(cookieStore.set).toHaveBeenCalledTimes(1);
     expect(cookieStore.set.mock.calls[0][0]).toBe(unlockCookieName('route-a'));
+  });
+});
+
+describe('security guards', () => {
+  /** A form the same shape the browser posts (files + route + pin). */
+  function form(files: File[], route: string) {
+    const fd = new FormData();
+    for (const file of files) fd.append('files', file);
+    fd.append('route', route);
+    fd.append('pin', '');
+    return fd;
+  }
+
+  it('rate limits share creation per address', async () => {
+    const { RATE_LIMITS } = await import('@/lib/security/rate-limit');
+
+    for (let i = 0; i < RATE_LIMITS.create.max; i += 1) {
+      const result = await createCodeShare({
+        code: 'console.log(1)',
+        route: `guard-${i}`,
+        pin: '',
+      });
+      expect(result.ok).toBe(true);
+    }
+
+    const blocked = await createCodeShare({
+      code: 'console.log(1)',
+      route: 'guard-over',
+      pin: '',
+    });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toMatch(/Too many requests/);
+
+    // The attempt was recorded, and nothing was written.
+    expect(shareCreate).toHaveBeenCalledTimes(RATE_LIMITS.create.max);
+    expect(
+      securityEventCreate.mock.calls.some(
+        (call) => call[0].data.type === 'rate_limit',
+      ),
+    ).toBe(true);
+  });
+
+  it('refuses every action from a blocked address', async () => {
+    blockedIpFindUnique.mockResolvedValue({
+      reason: 'abuse',
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const result = await createCodeShare({
+      code: 'console.log(1)',
+      route: 'blocked-route',
+      pin: '',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/blocked/);
+    expect(shareCreate).not.toHaveBeenCalled();
+    expect(
+      securityEventCreate.mock.calls.some(
+        (call) => call[0].data.type === 'blocked_ip',
+      ),
+    ).toBe(true);
+  });
+
+  it('lets an expired block through', async () => {
+    blockedIpFindUnique.mockResolvedValue({
+      reason: 'old',
+      expiresAt: new Date(Date.now() - 1000),
+    });
+
+    const result = await createCodeShare({
+      code: 'console.log(1)',
+      route: 'not-blocked',
+      pin: '',
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rate limits PIN attempts and logs the wrong ones', async () => {
+    const { RATE_LIMITS } = await import('@/lib/security/rate-limit');
+    const pinHash = await hashPin('1234');
+    shareFindUnique.mockResolvedValue({
+      route: 'route-pin',
+      pinHash,
+      isExpired: false,
+      expiresAt: new Date(Date.now() + 3600_000),
+    });
+
+    const form = () => {
+      const fd = new FormData();
+      fd.append('shareId', 'id-1');
+      fd.append('route', 'route-pin');
+      fd.append('pin', '9999');
+      return fd;
+    };
+
+    for (let i = 0; i < RATE_LIMITS.pin.max; i += 1) {
+      const result = await verifyPinAction({ ok: false }, form());
+      expect(result.error).toMatch(/Incorrect PIN/);
+    }
+
+    const limited = await verifyPinAction({ ok: false }, form());
+    expect(limited.error).toMatch(/Too many requests/);
+
+    const failures = securityEventCreate.mock.calls.filter(
+      (call) => call[0].data.type === 'pin_failure',
+    );
+    expect(failures).toHaveLength(RATE_LIMITS.pin.max);
+    expect(failures[0][0].data.route).toBe('route-pin');
+  });
+
+  it('rate limits the route availability probe', async () => {
+    const { RATE_LIMITS } = await import('@/lib/security/rate-limit');
+
+    for (let i = 0; i < RATE_LIMITS.lookup.max; i += 1) {
+      expect((await routeStatus('probe-route')).state).toBe('free');
+    }
+    const limited = await routeStatus('probe-route');
+    expect(limited.state).toBe('invalid');
+    expect(limited.message).toMatch(/Too many requests/);
+  });
+
+  it('refuses a renamed archive and records it', async () => {
+    // A real zip header inside a file called `notes.txt`.
+    const zipBytes = new Uint8Array(64);
+    zipBytes.set([0x50, 0x4b, 0x03, 0x04]);
+    const file = new File([zipBytes], 'notes.txt', { type: 'text/plain' });
+
+    const result = await createFileShare(form([file], 'zip-disguise'));
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/archive/i);
+    expect(shareFileCreateMany).not.toHaveBeenCalled();
+    expect(
+      securityEventCreate.mock.calls.some(
+        (call) => call[0].data.type === 'suspicious_upload',
+      ),
+    ).toBe(true);
+  });
+
+  it('stores the sanitized display name, not the raw one', async () => {
+    // Bidi override + path separators in the name the device sent.
+    const file = new File(['plain text'], 'notes\u202Egnp.txt', {
+      type: 'text/plain',
+    });
+
+    const result = await createFileShare(form([file], 'name-clean'));
+    expect(result.ok).toBe(true);
+
+    const rows = shareFileCreateMany.mock.calls[0][0].data;
+    expect(rows[0].fileName).not.toContain('\u202E');
+    expect(rows[0].fileName).toBe('notesgnp.txt');
   });
 });

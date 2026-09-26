@@ -78,10 +78,16 @@ function dosDateTime(date: Date): { time: number; date: number } {
 /** Keeps an archive entry name harmless: no directories, no traversal. */
 export function safeEntryName(name: string): string {
   const base = name.split(/[\\/]/).pop() ?? '';
-  // Control characters (\p{Cc}) and the characters Windows forbids in a file
-  // name are not allowed inside an archive entry.
-  const cleaned = base.replace(/[\p{Cc}<>:"|?*]/gu, '_').trim();
-  return cleaned.replace(/^\.+/, '') || 'file';
+  // Control characters (\p{Cc}) — and Unicode format characters such as the
+  // bidi overrides that can make `gnp.exe` read as `exe.png` — are not allowed
+  // inside an archive entry, nor are the characters Windows forbids. The name
+  // is also capped: no entry earns a 300-character file name.
+  const cleaned = base.replace(/[\p{Cc}\p{Cf}<>:"|?*]/gu, '_').trim();
+  const safe = cleaned.replace(/^\.+/, '') || 'file';
+  if (safe.length <= 180) return safe;
+  const dot = safe.lastIndexOf('.');
+  const ext = dot > 0 && safe.length - dot <= 12 ? safe.slice(dot) : '';
+  return (ext ? safe.slice(0, dot) : safe).slice(0, 180 - ext.length) + ext;
 }
 
 /** Duplicate names inside one archive get `-2`, `-3`, … appended. */

@@ -8,6 +8,44 @@ not by which file moved.
 Base: `5a588f7` — *upload UX round* — bigger drop area, block-list upload rules
 (archives / executables / web pages / media), live route-availability check.
 
+## Phase 2 — Security hardening
+
+The app now assumes somebody will try. Everything here is invisible to a
+normal visitor and loud for everyone else.
+
+- **Rate limits on the things that cost something.** Creating a share (20 per
+  10 minutes per address), PIN attempts (8 per 10 minutes per address *and*
+  route), downloads (60 per minute) and the live route probe (120 per minute).
+  Counters live in memory by default; point `UPSTASH_REDIS_REST_URL` /
+  `UPSTASH_REDIS_REST_TOKEN` at Upstash Redis and they are shared across
+  instances — with a fall back to memory if Redis is unreachable, because a
+  broken cache must not take the app down.
+- **An address that keeps hammering blocks itself.** Three violations inside
+  ten minutes and the IP is denied for fifteen minutes, with a reason, and the
+  block is checked (with a 15-second cache) before every action and download.
+  `SecurityEvent` and `BlockedIp` are new tables; the admin panel in phase 3
+  reads them.
+- **Uploads are checked by their bytes, not their names.** `lib/file-magic.ts`
+  compares the first 8 KB against the extension and the declared MIME type, so
+  a renamed archive, a disguised executable and a `.png` that is really HTML
+  are all refused — and logged as `suspicious_upload`.
+- **Names are cleaned before they are stored.** `sanitizeDisplayName` drops
+  control and bidi-override characters (the `invoice‮gnp.exe` trick), path
+  separators and absurd lengths; ZIP entry names got the same treatment plus a
+  180-character cap.
+- **Answers to abuse explain themselves.** 429 (with `Retry-After`) and 403
+  render the same small self-contained page the download failures use.
+- **Auth is rate limited** in Better Auth itself (10 sign-ins/minute, 5
+  sign-ups/5 minutes), and login failures are recorded.
+- **CSP and friends.** `Content-Security-Policy` (no external script/style/
+  frame/connect), `X-Content-Type-Options: nosniff`, `Referrer-Policy`,
+  `Permissions-Policy`, HSTS in production, and `X-Powered-By` turned off. The
+  app deliberately does **not** send `frame-ancestors`/`X-Frame-Options`: it is
+  meant to run inside the preview and any self-hoster's proxy — see
+  DEPLOYMENT.md for the one line to add if you serve it top-level.
+
+Tests: 187 → 224.
+
 ## The create button moves up on the code page too
 
 `/create/code` still put "Create share" at the very bottom, under a 420px

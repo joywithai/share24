@@ -1,5 +1,5 @@
 import { downloadFailure } from '@/lib/download-error';
-import { authorizeDownload } from '@/lib/downloads';
+import { authorizeDownload, downloadGuard } from '@/lib/downloads';
 import { providerFor } from '@/lib/storage';
 
 export const dynamic = 'force-dynamic';
@@ -16,6 +16,9 @@ export async function GET(
   context: { params: Promise<{ route: string; fileId: string }> },
 ) {
   const { route, fileId } = await context.params;
+
+  const limited = await downloadGuard(request, route);
+  if (limited) return limited;
 
   const access = await authorizeDownload(request, route, {
     scope: fileId,
