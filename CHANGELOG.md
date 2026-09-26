@@ -8,6 +8,18 @@ not by which file moved.
 Base: `5a588f7` — *upload UX round* — bigger drop area, block-list upload rules
 (archives / executables / web pages / media), live route-availability check.
 
+## The create button moves up on the code page too
+
+`/create/code` still put "Create share" at the very bottom, under a 420px
+editor — the same place `/create/file` was fixed earlier. The button and its
+hint line now live in the Route/PIN card, so both create pages read the same
+way: name the route, set a PIN if you want, create the share, then fill in the
+content.
+
+The hint follows what is on the page: "Write or paste your code below — then
+create the share." while the editor is empty, "Self-destructs 24 hours after
+creation." once there is something to share.
+
 ## Phase 1 — Storage that can leave the disk (Cloudflare R2)
 
 The production roadmap's first phase: uploads no longer assume "the file is on

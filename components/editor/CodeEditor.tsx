@@ -240,9 +240,9 @@ export function CodeEditor({
         // Monaco's default is `alwaysConsumeMouseWheel: true`, meaning it
         // swallows *every* wheel event over the editor, even when the content
         // already sits at the top or the bottom. The page then refuses to
-        // scroll while the pointer is over the box, which traps the visitor:
-        // the route/PIN fields and the "Create share" button below become
-        // unreachable without first moving the pointer out of the editor.
+        // scroll while the pointer is over the box, which traps the visitor at
+        // whatever the editor happens to be showing, without first moving the
+        // pointer out of the editor.
         //
         // Switching it off means Monaco only consumes the event while it can
         // actually scroll; at either end the browser scrolls the page as
