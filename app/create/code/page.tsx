@@ -25,6 +25,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import { rememberSlug } from '@/lib/recent-slugs';
 import { normalizeRoute } from '@/lib/route';
 import { type CodeShareInput, codeShareSchema } from '@/lib/schemas';
 
@@ -94,7 +95,11 @@ export default function CreateCodePage() {
     setPending(false);
 
     if (result.ok && result.route) {
-      router.push(`/${result.route}`);
+      // Keep the name for the "Your slugs" strip on the homepage, then land
+      // there — the link is what the visitor needs next, and the strip copies
+      // it in one click.
+      rememberSlug(result.route);
+      router.push('/');
       router.refresh();
       return;
     }

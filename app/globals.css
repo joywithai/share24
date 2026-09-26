@@ -55,6 +55,28 @@
     "Liberation Mono", monospace;
 }
 
+/* "Your slugs" chips settle in one after another. */
+@keyframes slug-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.slug-chip {
+  animation: slug-chip-in 220ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slug-chip {
+    animation: none;
+  }
+}
+
 html {
   color-scheme: dark;
 }

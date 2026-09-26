@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { Brand } from '@/components/layout/Brand';
+import { RecentSlugs } from '@/components/share/RecentSlugs';
 import { RouteGoBox } from '@/components/share/RouteGoBox';
 
 const steps = [
@@ -80,6 +81,10 @@ export default function HomePage() {
       {/* The whole product in one box: name → link. Type (or paste) a name
           somebody shared with you and Go straight to it. */}
       <RouteGoBox />
+
+      {/* Names this browser created — client-side only (sessionStorage), no
+          database round trip; hidden entirely for a first-time visitor. */}
+      <RecentSlugs />
 
       <div className="mt-8 grid w-full max-w-2xl gap-3 sm:grid-cols-2 sm:gap-4">
         {actions.map((action) => (

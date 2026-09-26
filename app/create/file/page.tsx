@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { filesProblem, MAX_FILES_PER_SHARE } from '@/lib/file';
+import { rememberSlug } from '@/lib/recent-slugs';
 import { normalizeRoute } from '@/lib/route';
 import { type FileShareInput, fileShareSchema } from '@/lib/schemas';
 
@@ -96,7 +97,11 @@ export default function CreateFilePage() {
     setPending(false);
 
     if (result.ok && result.route) {
-      router.push(`/${result.route}`);
+      // Keep the name for the "Your slugs" strip on the homepage, then land
+      // there — the link is what the visitor needs next, and the strip copies
+      // it in one click.
+      rememberSlug(result.route);
+      router.push('/');
       router.refresh();
       return;
     }

@@ -21,6 +21,11 @@ something to share → no signup, no forms → paste it + pick a route → link
   is free again as soon as the previous share expires
 - **Open by name** — type (or paste) a share name in the homepage box to jump
   straight to that link; unknown names land on the 404 page with a Back button
+- **Your slugs** — creating a share drops you back on the homepage, which
+  lists the names *this browser* made as chips (newest first, arrows once the
+  strip overflows); one click copies the link. Kept in `sessionStorage` only —
+  gone when the tab closes, and each entry expires with its share after 24 h.
+  No database involved, and nothing is sent anywhere
 - **Optional 4-digit PIN** — bcrypt-hashed; unlocking mints a short-lived,
   HMAC-signed cookie for that route (creator auto-unlocks on creation)
 - **24-hour expiry** — lazy evaluation on access; `isExpired` flag flipped
