@@ -46,10 +46,43 @@ something to share → no signup, no forms → paste it + pick a route → link
   lists your shares with live status
 - **Dark, minimal UI** — fixed palette, 1000px centered layout
 
+## Production features
+
+Everything below was added on top of that visitor flow, which is unchanged — no
+extra step, no account, no cookie banner.
+
+**Security**
+- Rate limits per address on every write and every guess (create, PIN, download,
+  lookup, auth), in memory or shared through Upstash Redis when configured
+- Automatic blocking: three limit violations from one address earn a 15-minute
+  block; repeat offenders are visible in the panel and can be blocked by hand
+- Uploads are checked three ways — extension, declared MIME type, and the first
+  8 KB of actual content — so a ZIP renamed to `.png` is refused; file names are
+  sanitised before they are stored or echoed back
+- `Content-Security-Policy` and friends on every response, `nosniff`,
+  `Referrer-Policy`, `Permissions-Policy`, no `X-Powered-By`
+- Every refusal is a page that explains itself, and every security-relevant
+  event is recorded (`SecurityEvent`)
+
+**Operations**
+- `/admin` panel: dashboard with 14-day charts, shares, files, users, security
+  log, storage, audit log, settings, and one global search across all of it
+- Global search (`/admin/search`) matches routes, file names, accounts and the
+  security log in one query
+- Background cleanup (`/api/cron/cleanup`, hourly on Vercel, or a button in the
+  panel): expired shares past the retention window, orphaned rows, unclaimed
+  files, empty folders, expired blocks, old events — bounded and idempotent
+- Maintenance mode that visitors see and administrators can still work through
+- Storage that can leave the disk: LOCAL or Cloudflare R2, per file
+- Configurable retention and cleanup switches in a typed settings registry
+
+**Deployment** — see [`DEPLOYMENT.md`](./DEPLOYMENT.md).
+
 ### Deliberately not in V1
 
-view counts/analytics, edit share, manual delete, permanent links, teams,
-light mode, more than 10 files per share, rate limiting, S3/CDN file storage.
+editing a share after creation, permanent links, teams, light mode, more than 10
+files per share, virus scanning, e-mail (reset/verification), 2FA, and a ZIP
+larger than 4 GB (no ZIP64).
 
 ## Tech stack
 
@@ -192,7 +225,10 @@ their routes automatically.
 
 On every access the page checks **both** `isExpired` and `expiresAt <= now`.
 If the timestamp has passed, the flag is flipped in the same request and the
-expired panel renders.
+expired panel renders — expiry never depends on a scheduled job.
+
+Deleting the *files* behind expired shares is the separate housekeeping job
+below; until it runs the bytes simply sit there, unreachable.
 
 ### File storage (providers)
 
@@ -284,11 +320,13 @@ token.
 ## Testing
 
 ```bash
-npm test                    # 155 tests: route/pin/file/expire/schema rules,
+npm test                    # 258 tests: route/pin/file/expire/schema rules,
                             # the ZIP writer and download availability,
                             # download failure pages, auth + create flows,
                             # server actions (mocked DB, real file I/O),
-                            # UI components (jsdom)
+                            # rate limits + IP blocking + upload sniffing,
+                            # admin guards, settings coercion, cleanup,
+                            # global search, UI components (jsdom)
 npm run e2e                 # Playwright: code round-trip, file download,
                             # PIN wrong→correct
 ```
@@ -296,23 +334,28 @@ npm run e2e                 # Playwright: code round-trip, file download,
 Playwright needs a browser (`npx playwright install chromium`) and a running
 app + database. It is not run in CI-less offline sandboxes.
 
-## Deployment (Vercel + Neon)
+## Deployment
 
-1. `npm i -g vercel && vercel` (or the Vercel dashboard)
-2. Set `DATABASE_URL` (Neon), `BETTER_AUTH_SECRET`, `NEXT_PUBLIC_APP_URL`
-3. Apply migrations in an environment with network access:
-   `npx prisma migrate deploy`
-4. Files live in `/tmp` on Vercel — **ephemeral** (cold starts may drop
-   uploads). Point `CORIUM_UPLOADS_DIR` at a mounted volume if you have one; if
-   the bytes are gone anyway, the download route says so on an explained page
-   instead of failing silently. S3/R2 storage is the V2 fix.
+Full walkthrough — Vercel + Neon + R2, Docker/self-hosting, the environment
+variables, the cron endpoint, backups and the V1 limits — lives in
+[`DEPLOYMENT.md`](./DEPLOYMENT.md). The short version: `DATABASE_URL`,
+`BETTER_AUTH_SECRET` and `UNLOCK_SECRET` are required, `STORAGE_TYPE=R2` plus
+the four R2 values is what makes it production-safe on a host with an ephemeral
+disk, and `CRON_SECRET` turns the cleanup endpoint on.
 
 ## Repository layout
 
 ```
 app/                  routes (see rendering strategy above)
+  admin/              the panel (layout + dashboard/shares/files/users/security/
+                      storage/logs/settings/search)
+  api/cron/cleanup/   the scheduled cleanup endpoint
   actions/share.ts    server actions: createCodeShare, createFileShare, verifyPin
+  actions/admin.ts    panel actions (expire/delete/role/status/block/settings)
+  actions/maintenance.ts  run cleanup / storage scan
 components/
+  admin/              panel tables, charts, forms, action buttons
+  layout/MaintenanceBanner.tsx
   editor/             Monaco wrapper (client, ssr:false)
   file/               FileDrop (client)
   share/              ShareView (file list, gone states), DownloadLink,
@@ -326,6 +369,11 @@ lib/                  prisma singleton, auth, route rules, pin (bcrypt+HMAC),
                       download tokens, download gate, download error pages,
                       recent slugs (sessionStorage), file rules, schemas (zod),
                       storage, zip, expire, utils
+  security/           client IP, rate limiter (memory + Upstash), events,
+                      the guard, response headers
+  admin/              global search
+  cleanup/            the background job
+  settings.ts         typed settings registry (maintenance, retention, cleanup)
 prisma/               schema.prisma + migrations (hand-maintained SQL,
                       applied by scripts/db.mjs in offline dev)
 scripts/              db.mjs (embedded pg), prisma.mjs (offline-safe generate),

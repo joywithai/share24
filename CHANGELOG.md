@@ -8,6 +8,29 @@ not by which file moved.
 Base: `5a588f7` — *upload UX round* — bigger drop area, block-list upload rules
 (archives / executables / web pages / media), live route-availability check.
 
+## Phase 5 — Finding things, and the paperwork
+
+- **Global search** (`/admin/search`, and a box in the panel header): one term
+  matches routes, file names, accounts and the security log, grouped with the
+  count for each and linked to the page that owns it. LIKE wildcards typed by a
+  visitor are escaped, the term is trimmed to 80 characters, and each group is
+  capped — the point is to orient somebody, not to export the database. Tested
+  against a mocked Prisma (term handling, escaping, caps, expired-first
+  labelling).
+- **`DEPLOYMENT.md`**: the 20-minute Vercel + Neon + R2 route with the exact
+  variable table, self-hosting on a VPS with the two proxy details that
+  actually matter (forward the client address; decide about framing), Docker
+  sketch, backups that work (rows and bytes together), the cleanup table, the
+  health checks, and an honest list of the V1 limits — no virus scanning,
+  no e-mail, 2FA deferred.
+- **README** grew a *Production features* section, an admin-panel map, refreshed
+  test counts and a layout that matches the tree, and now points at
+  `DEPLOYMENT.md` instead of repeating it.
+- **2FA stays V2 on purpose.** Better Auth ships the plugin, but enabling it
+  means a new table, an enrolment screen, recovery codes and a second step in
+  the sign-in flow — a feature, not a toggle. It is listed as a known limit
+  rather than half-wired.
+
 ## Phase 4 — Cleanup, maintenance mode, and a job that actually runs
 
 Expiry already stopped links from working; nothing ever removed anything. Now

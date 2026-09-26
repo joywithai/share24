@@ -10,6 +10,7 @@ import { usePathname } from 'next/navigation';
 
 const ITEMS = [
   { href: '/admin', label: 'Dashboard' },
+  { href: '/admin/search', label: 'Search' },
   { href: '/admin/shares', label: 'Shares' },
   { href: '/admin/files', label: 'Files' },
   { href: '/admin/users', label: 'Users' },

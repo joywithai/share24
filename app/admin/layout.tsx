@@ -30,7 +30,14 @@ export default async function AdminLayout({
           <Brand />
         </Link>
         <div className="flex items-center gap-3 text-sm">
-          <span className="hidden text-sub sm:inline">{admin.email}</span>
+          <form action="/admin/search" className="hidden sm:block">
+            <input
+              name="q"
+              placeholder="Search…"
+              className="h-9 w-40 rounded-md border border-line bg-card-soft px-3 text-sm text-fg outline-none focus:border-accent"
+            />
+          </form>
+          <span className="hidden text-sub lg:inline">{admin.email}</span>
           <Link
             href="/"
             className="rounded-md border border-line px-3 py-1.5 text-sub transition-colors hover:text-fg"
