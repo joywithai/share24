@@ -169,3 +169,43 @@ describe('ShareView — download tokens and the resume-after-PIN flow', () => {
     }
   });
 });
+
+describe('DownloadLink', () => {
+  it('downloads in place when the page is top-level', async () => {
+    const { DownloadLink } = await import('@/components/share/DownloadLink');
+    render(
+      <DownloadLink href="/r/download" downloadKey="all">
+        Download
+      </DownloadLink>,
+    );
+    const link = screen.getByRole('link');
+    expect(link.getAttribute('target')).toBeNull();
+    expect(link.getAttribute('rel')).toBeNull();
+  });
+
+  it('opens a new tab when the page is embedded, so the sandbox cannot block it', async () => {
+    const { DownloadLink } = await import('@/components/share/DownloadLink');
+    const topDescriptor = Object.getOwnPropertyDescriptor(window, 'top');
+    // Pretend the page is inside a preview iframe.
+    Object.defineProperty(window, 'top', {
+      configurable: true,
+      get: () => ({}) as Window,
+    });
+    try {
+      render(
+        <DownloadLink href="/r/download" downloadKey="all">
+          Download
+        </DownloadLink>,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('link').getAttribute('target')).toBe('_blank'),
+      );
+      expect(screen.getByRole('link').getAttribute('rel')).toBe('noopener');
+      expect(screen.getByRole('link').getAttribute('data-download-key')).toBe(
+        'all',
+      );
+    } finally {
+      if (topDescriptor) Object.defineProperty(window, 'top', topDescriptor);
+    }
+  });
+});

@@ -1,6 +1,7 @@
 import { CodeViewer } from '@/components/share/CodeViewer';
 import { CopyButton } from '@/components/share/CopyButton';
 import { DownloadAutoStart } from '@/components/share/DownloadAutoStart';
+import { DownloadLink } from '@/components/share/DownloadLink';
 import { ExpiryCountdown } from '@/components/share/ExpiryCountdown';
 import { formatBytes } from '@/lib/file';
 
@@ -133,14 +134,14 @@ function SharedFileList({
               {formatBytes(file.fileSize)} · {file.mimeType}
             </p>
           </div>
-          <a
+          <DownloadLink
             href={downloadHref(route, ALL_FILES, tokens)}
-            data-download-key={ALL_FILES}
+            downloadKey={ALL_FILES}
             className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-soft"
           >
             {downloadIcon('h-4 w-4')}
             Download
-          </a>
+          </DownloadLink>
         </div>
         <p className="mt-4 text-xs text-sub/70">
           Files are stored on this server and vanish with the share — download
@@ -161,14 +162,14 @@ function SharedFileList({
             Take them one by one, or grab the whole set in one ZIP.
           </p>
         </div>
-        <a
+        <DownloadLink
           href={downloadHref(route, ALL_FILES, tokens)}
-          data-download-key={ALL_FILES}
+          downloadKey={ALL_FILES}
           className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-soft"
         >
           {downloadIcon('h-4 w-4')}
           Download all (.zip)
-        </a>
+        </DownloadLink>
       </div>
 
       <ul className="divide-y divide-line">
@@ -188,14 +189,14 @@ function SharedFileList({
                 {formatBytes(file.fileSize)} · {file.mimeType}
               </p>
             </div>
-            <a
+            <DownloadLink
               href={downloadHref(route, file.id, tokens)}
-              data-download-key={file.id}
+              downloadKey={file.id}
               className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-line bg-transparent px-3 text-xs font-medium text-fg transition-colors hover:bg-card hover:border-accent/50"
             >
               {downloadIcon('h-3.5 w-3.5')}
               Download
-            </a>
+            </DownloadLink>
           </li>
         ))}
       </ul>
