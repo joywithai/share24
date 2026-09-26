@@ -8,6 +8,37 @@ not by which file moved.
 Base: `5a588f7` — *upload UX round* — bigger drop area, block-list upload rules
 (archives / executables / web pages / media), live route-availability check.
 
+## Phase 3 — The admin panel
+
+An operator can now see and steer the whole app from `/admin` — and nothing
+about the visitor-facing flow changed.
+
+- **Access.** `User` gained `role` (`user`/`admin`) and `status`
+  (`active`/`suspended`), and the seed creates `admin@sharetofnd.dev /
+  admin123`. The middleware bounces anonymous visitors to the login page; the
+  layout checks the *role* from the database and answers a signed-in non-admin
+  with a 404 rather than a redirect, so the panel is not even confirmed to
+  exist. Every action re-checks the role itself.
+- **Pages.** Dashboard (counts, 14-day bar charts for shares and security
+  events, latest shares), Shares (filter by active/expired/all, search, expire
+  or delete), Files (per-row "are the bytes really there?" check, storage
+  filter, delete), Users (promote/demote, suspend/reactivate — suspension drops
+  the account's sessions, and you cannot demote or suspend yourself), Security
+  (event log with filters, block/unblock an address, the active rate limits),
+  Storage (provider breakdown, R2 configuration readiness, a consistency scan of
+  rows-vs-bytes and unclaimed files, run cleanup now), Logs (who changed what,
+  plus cleanup runs) and Settings.
+- **Settings** live in `SystemSetting` but only through the registry in
+  `lib/settings.ts` — key, type, range and default are declared there, so the
+  panel can never store something the app cannot read.
+- **Audit trail.** `AdminLog` records every panel action with the actor, the
+  target and a detail line, and shows up on the Logs page.
+- **Charts without a chart library.** Server-rendered bars: fast, no client JS,
+  nothing for the CSP to object to.
+
+Tests for the panel's guards, the settings coercion and the cleanup helpers grew
+the suite from 224 to 235.
+
 ## Phase 2 — Security hardening
 
 The app now assumes somebody will try. Everything here is invisible to a

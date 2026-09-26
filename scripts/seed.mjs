@@ -100,6 +100,47 @@ if (!userId) {
   }
 }
 
+// --- Administrator account (admin@sharetofnd.dev / admin123) --------------
+// Deliberately a second account: the demo user stays a normal user so the
+// panel's role handling has both sides to show.
+const ADMIN_EMAIL = 'admin@sharetofnd.dev';
+const ADMIN_PASSWORD = 'admin123';
+
+const adminRes = await client.query(
+  'SELECT "id", "role" FROM "User" WHERE "email" = $1',
+  [ADMIN_EMAIL],
+);
+
+if (adminRes.rows.length === 0) {
+  const adminId = crypto.randomUUID();
+  const ts = iso(now);
+  await client.query(
+    `INSERT INTO "User" ("id", "name", "email", "emailVerified", "role", "status", "createdAt", "updatedAt")
+     VALUES ($1, 'Admin', $2, true, 'admin', 'active', $3, $3)`,
+    [adminId, ADMIN_EMAIL, ts],
+  );
+  await client.query(
+    `INSERT INTO "Account" ("id", "accountId", "providerId", "userId", "password", "createdAt", "updatedAt")
+     VALUES ($1, $2, 'credential', $3, $4, $5, $5)`,
+    [
+      crypto.randomUUID(),
+      adminId,
+      adminId,
+      await hashPassword(ADMIN_PASSWORD),
+      ts,
+    ],
+  );
+  console.log(`[seed] created admin ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
+} else if (adminRes.rows[0].role !== 'admin') {
+  await client.query(
+    'UPDATE "User" SET "role" = \'admin\', "updatedAt" = $2 WHERE "id" = $1',
+    [adminRes.rows[0].id, iso(now)],
+  );
+  console.log(`[seed] promoted ${ADMIN_EMAIL} to admin`);
+} else {
+  console.log('[seed] admin account already exists — skipping');
+}
+
 // --- Sample active code share ---------------------------------------------
 const codeTaken = await client.query(
   `SELECT 1 FROM "Share" WHERE "route" = 'hello-world' AND "isExpired" = false AND "expiresAt" > $1`,

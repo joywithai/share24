@@ -21,17 +21,35 @@ datasource db {
 // Auth (Better Auth standard schema: user, session, account, verification)
 // ---------------------------------------------------------------------------
 
+/// Who may open /admin. `user` is everybody; `admin` is the operator.
+enum UserRole {
+  user
+  admin
+}
+
+/// A suspended account cannot sign in and its shares are treated as anonymous.
+enum UserStatus {
+  active
+  suspended
+}
+
 model User {
-  id            String    @id @default(cuid())
+  id            String     @id @default(cuid())
   name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
+  email         String     @unique
+  emailVerified Boolean    @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  /// Default for every account that signs up from the app.
+  role          UserRole   @default(user)
+  status        UserStatus @default(active)
+  /// Last time this account was seen (kept fresh by the profile page).
+  lastSeenAt    DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
   sessions      Session[]
   accounts      Account[]
   shares        Share[]
+  adminActions  AdminLog[]
 }
 
 model Session {
@@ -143,6 +161,27 @@ model ShareFile {
   createdAt DateTime @default(now())
 
   @@index([shareId, position])
+}
+
+// ---------------------------------------------------------------------------
+// Administration (phase 3)
+// ---------------------------------------------------------------------------
+
+/// What an operator did in the admin panel. The security trail answers "what
+/// happened"; this answers "who changed it".
+model AdminLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  /// Machine-readable verb: share.expire, user.suspend, setting.update, …
+  action     String
+  /// What it was done to (a share id, a user id, an IP, a setting key).
+  target     String?
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action, createdAt])
 }
 
 // ---------------------------------------------------------------------------
